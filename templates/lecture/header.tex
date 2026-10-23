@@ -1,0 +1,44 @@
+% 清简讲义 v0.1：Fandol 宋/黑 + Latin Modern；不含任何外部执行方案。
+\usepackage{fvextra}
+\usepackage{geometry}
+\usepackage{caption}
+\usepackage{fancyhdr}
+\usepackage{needspace}
+\usepackage{setspace}
+\usepackage{etoolbox}
+\geometry{a4paper,left=25mm,right=25mm,top=24mm,bottom=24mm,headheight=14pt}
+\setstretch{1.4}
+\ctexset{
+  section={format=\sffamily\bfseries\fontsize{16}{22}\selectfont,
+    beforeskip=1.1em,afterskip=0.5em},
+  subsection={format=\sffamily\bfseries\fontsize{13}{19}\selectfont,
+    beforeskip=0.8em,afterskip=0.4em},
+  subsubsection={format=\sffamily\bfseries\fontsize{11}{17}\selectfont}
+}
+\AtBeginDocument{\setlength{\parindent}{2em}\setlength{\parskip}{0.25em}}
+\widowpenalty=10000
+\clubpenalty=10000
+\displaywidowpenalty=10000
+\setcounter{secnumdepth}{3}
+\setcounter{tocdepth}{2}
+% 一级章节预留一段实质阅读空间，避免结论挤在页底、例题独占很短的尾页。
+\pretocmd{\section}{\Needspace{14\baselineskip}}{}{}
+\captionsetup{font=small,labelfont=bf,labelsep=quad}
+\makeatletter
+\renewcommand{\maketitle}{%
+  \begingroup\parindent=0pt
+  {\sffamily\bfseries\fontsize{22}{30}\selectfont\@title\par}
+  \vspace{0.5em}{\small\@author\quad\@date\par}\vspace{0.7em}
+  \endgroup
+}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\nouppercase{\@title}}
+\fancyfoot[C]{\small\thepage}
+\renewcommand{\headrulewidth}{0.3pt}
+\AtBeginDocument{\thispagestyle{plain}}
+\makeatother
+\BeforeBeginEnvironment{theorem}{\Needspace{5\baselineskip}}
+\BeforeBeginEnvironment{lemma}{\Needspace{5\baselineskip}}
+\BeforeBeginEnvironment{definition}{\Needspace{5\baselineskip}}
+\BeforeBeginEnvironment{example}{\Needspace{5\baselineskip}}
