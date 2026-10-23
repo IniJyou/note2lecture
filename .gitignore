@@ -1,0 +1,55 @@
+# 项目独立环境与本地配置
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+
+# Python 与工具缓存
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# 私人输入、模型与导出产物
+private/
+notes/
+input/
+models/
+output/
+logs/
+tmp/
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+
+# TeX 编译临时文件；模板 .tex 与公开样张可按需纳入
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.lof
+*.lot
+*.out
+*.run.xml
+*.synctex.gz
+*.toc
+*.xdv
+
+# 本地系统与编辑器临时文件
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~
