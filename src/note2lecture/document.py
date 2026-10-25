@@ -100,6 +100,7 @@ class Document:
     internal_links: list = field(default_factory=list)
     obsidian: dict = field(default_factory=dict)
     callout_ids: set = field(default_factory=set)
+    inline_math: list = field(default_factory=list)
 
     @property
     def markdown_mode(self):
@@ -108,6 +109,8 @@ class Document:
     @property
     def reader(self):
         base = "markdown-smart-latex_macros"
+        if self.markdown_mode:
+            base += "+tex_math_single_backslash"
         return base + ("+wikilinks_title_after_pipe" if self.profile == "obsidian" else "")
 
 
@@ -181,17 +184,23 @@ def lexical_scan(doc, body_offset):
 
     hide(0, body_offset)
     fence = math_start = None
+    math_end = "$$"
     divs = []
     offset = body_offset
     for line in doc.body.splitlines(keepends=True):
         stripped = line.rstrip("\n")
+        # 列表续行中的围栏会缩进；只屏蔽记号，原文和缩进都交给 Pandoc 保留。
+        if doc.markdown_mode:
+            stripped = stripped.strip(" \t")
         if fence is not None:
             hide(offset, offset + len(line))
             if stripped == "```":
                 fence = None
         elif math_start is not None:
             hide(offset, offset + len(line))
-            if re.fullmatch(r"\$\$(?: \{#[-a-z0-9]+\})?", stripped):
+            if (math_end == "$$" and re.fullmatch(r"\$\$(?: \{#[-a-z0-9]+\})?", stripped)) or (
+                math_end == r"\]" and stripped == math_end
+            ):
                 math_start = None
         elif stripped.startswith("```"):
             if stripped not in {"```", "```python", "```text"}:
@@ -203,8 +212,9 @@ def lexical_scan(doc, body_offset):
                 )
             fence = offset
             hide(offset, offset + len(line))
-        elif stripped == "$$":
+        elif stripped == "$$" or (doc.markdown_mode and stripped == r"\["):
             math_start = offset
+            math_end = "$$" if stripped == "$$" else r"\]"
             hide(offset, offset + len(line))
         elif stripped.startswith(":::"):
             if stripped == ":::":
@@ -225,14 +235,29 @@ def lexical_scan(doc, body_offset):
     for match in re.finditer(r"(`+)([^\n]*?)\1", view):
         hide(*match.span())
     view = "".join(mask)
-    for match in re.finditer(r"(?<!\\)\$([^\n$]+?)(?<!\\)\$", view):
-        hide(*match.span())
+    if doc.markdown_mode:
+        from .math_input import inline_spans
+
+        doc.inline_math = inline_spans(view, s)
+        for span in doc.inline_math:
+            hide(span["start"], span["end"])
+    else:
+        for match in re.finditer(r"(?<!\\)\$([^\n$]+?)(?<!\\)\$", view):
+            hide(*match.span())
     view = "".join(mask)
     unmatched = re.search(r"(?<!\\)\$", view)
     if unmatched:
         s.error(
             "STRUCTURE_INVALID", "行内公式分隔符未闭合或写法不受支持。", offset=unmatched.start()
         )
+    if doc.markdown_mode:
+        unmatched = re.search(r"(?<!\\)\\[()[\]]", view)
+        if unmatched:
+            s.error(
+                "STRUCTURE_INVALID",
+                "反斜线公式分隔符未闭合或写法不受支持。",
+                offset=unmatched.start(),
+            )
     unsupported = r"\{\{[<%]|\\[\[(]|(?m:^[ \t]*- \[[ xX]\])"
     if doc.profile != "obsidian":
         unsupported = r"\[\[|!\[\[|\[![A-Za-z]+\]|" + unsupported
@@ -278,7 +303,12 @@ def read_document(path, quarto, profile="strict"):
     doc = Document(path, source, meta, body, {}, digest(raw), profile=profile)
     doc.adaptations = adaptations
     lexical_scan(doc, offset)
-    doc.ast = json.loads(pandoc(quarto, body, doc.reader, "json"))
+    if doc.markdown_mode:
+        from .math_input import parse_ast
+
+        doc.ast = parse_ast(doc, body, quarto)
+    else:
+        doc.ast = json.loads(pandoc(quarto, body, doc.reader, "json"))
     if doc.markdown_mode:
         from .markdown import adapt_markdown
 
@@ -292,7 +322,11 @@ def validate_math(doc, node):
     s = doc.source
     # 两个反斜线是矩阵换行，不能把 \\\\x 的第二个反斜线误判为命令。
     for command in re.finditer(r"(?<!\\)(?:\\\\)*\\([A-Za-z]+)", text):
-        extra = {"longrightarrow", "Longrightarrow", "mid", "odot"}
+        extra = {
+            "longrightarrow", "Longrightarrow", "mid", "odot", "dim", "arcsin", "arccos",
+            "arctan", "cot", "boxed", "bigl", "bigr", "Bigl", "Bigr", "uparrow", "downarrow",
+            "therefore", "Longleftrightarrow", "square", "tag", "iiint", "oiint",
+        }
         if command[1] not in MATH_COMMANDS | (extra if doc.markdown_mode else set()):
             s.error(
                 "UNSUPPORTED_SYNTAX", f"不支持的数学命令：{command[0]}", command[0], block="math"
@@ -307,6 +341,12 @@ def validate_math(doc, node):
             s.error("STRUCTURE_INVALID", "数学子环境未正确配对。", match[0])
     if stack:
         s.error("STRUCTURE_INVALID", "数学子环境未闭合。", text)
+    if re.search(r"\\tag\b", text):
+        if node["c"][0]["t"] != "DisplayMath":
+            s.error("UNSUPPORTED_SYNTAX", "手写公式编号仅支持独立公式。", text, block="math")
+        tags = re.findall(r"\\tag\{([A-Za-z0-9.()-]+)\}", text)
+        if len(tags) != 1 or len(re.findall(r"\\tag\b", text)) != 1:
+            s.error("UNSUPPORTED_SYNTAX", "每个独立公式仅支持一个简单的 \\tag{编号}。", text)
     doc.math.append({"kind": node["c"][0]["t"], "text": text, "sha256": digest(text.encode())})
 
 
@@ -336,6 +376,8 @@ def validate_ast(doc):
         "Link",
         "Cite",
     }
+    if doc.markdown_mode:
+        allowed.update({"HorizontalRule", "LineBreak"})
 
     def label(identifier, kind):
         if not LABEL.fullmatch(identifier) or identifier.split("-", 1)[0] != kind:
@@ -379,6 +421,8 @@ def validate_ast(doc):
         if kind in {
             "Decimal",
             "Period",
+            "OneParen",
+            "TwoParens",
             "AlignDefault",
             "AlignLeft",
             "AlignRight",
@@ -423,12 +467,25 @@ def validate_ast(doc):
                 s.error("UNSUPPORTED_SYNTAX", "不支持的 div 或属性。", ident or "::: {")
         elif kind in {"BulletList", "OrderedList"}:
             list_depth += 1
-            if list_depth > 2:
-                s.error("UNSUPPORTED_SYNTAX", "列表最多两层。", plain(value))
+            limit = 4 if doc.markdown_mode else 2
+            if list_depth > limit:
+                s.error("UNSUPPORTED_SYNTAX", f"列表最多{limit}层。", plain(value))
             items = c if kind == "BulletList" else c[1]
-            if kind == "OrderedList" and [x["t"] for x in c[0][1:]] != ["Decimal", "Period"]:
-                s.error("UNSUPPORTED_SYNTAX", "有序列表仅接受 1. 形式。", plain(value))
+            if kind == "OrderedList":
+                styles = {"Period", "OneParen", "TwoParens"} if doc.markdown_mode else {"Period"}
+                if c[0][1]["t"] != "Decimal" or c[0][2]["t"] not in styles:
+                    s.error("UNSUPPORTED_SYNTAX", "不支持此有序列表编号形式。", plain(value))
             for item in items:
+                if doc.markdown_mode:
+                    if not item or item[0]["t"] not in {"Plain", "Para"} or any(
+                        x["t"] not in {"Plain", "Para", "BulletList", "OrderedList"} for x in item
+                    ):
+                        s.error(
+                            "UNSUPPORTED_SYNTAX",
+                            "列表内仅支持段落、公式与最多四层列表。",
+                            plain(value),
+                        )
+                    continue
                 if (
                     not item
                     or item[0]["t"] not in {"Plain", "Para"}

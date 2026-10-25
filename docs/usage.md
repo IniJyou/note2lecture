@@ -6,7 +6,7 @@
 
 项目使用自身 `.venv`，不借用 MiniGPT-CN 或 CS336 环境。下载、安装和 Git 写操作仍由用户执行，除非另行明确授权。
 
-本轮实际组合：Python 3.12.4、Quarto 1.10.19（内置 Pandoc 3.10）、XeTeX 0.999996 / TeX Live 2024。注意：转换使用 Quarto 内置 Pandoc，不是 PATH 中独立的 Pandoc 3.12.1。Python 依赖实测版本保存在 [requirements-dev.txt](../requirements-dev.txt)。新环境准备方式为：
+本轮实际组合：Python 3.12.4、Quarto 1.10.19（内置 Pandoc 3.10）、XeTeX 0.999996 / TeX Live 2024。转换优先直接调用所选 Quarto 安装内 `bin/tools/` 的 Pandoc，避免本机包装命令转发大 stdout 时随机缺段；安装布局不含该文件时保留 `quarto pandoc` 调用。不使用 PATH 中独立的 Pandoc 3.12.1，版本记录与实际调用保持一致。Python 依赖实测版本保存在 [requirements-dev.txt](../requirements-dev.txt)。新环境准备方式为：
 
 ```powershell
 python -m venv .venv
@@ -16,6 +16,8 @@ python -m venv .venv
 字体固定为 TeX Live 已有的 Fandol 宋/黑/仿宋与 Latin Modern。本轮没有安装思源字体；这是 N0 允许的首轮已备字体方案，不能当成思源字体样张。字体文件不随源包分发，实际字体摘要保存在每份 `manifest.json`。
 
 首套“清简讲义 v0.1”已确认：正文约 11 pt、行距参数 1.4，数学环境为粗体题头、正体正文、无框无线。Times New Roman 仅做过独立对照，用户最终选择保留 Latin Modern，不需要为本模板准备 Times 字体。定稿样张与源包在本机 `output/n1-approved/`；新文档仍按下面的状态规则逐篇检查。
+
+2026-10-25 根据用户最新反馈，超宽普通公式改为在竖版内按明确的外层关系符分行，保持原公式、运算次序与可读字号；不能安全分行或分行后仍超宽则报错。无需额外安装横向页面宏包。正文与正文标题中的 `①`、`②`、`∎` 使用既有 Fandol / Latin Modern Math 补齐原字符。手写或显式标签编号公式的边界见 Markdown 适配规则。
 
 ## 2. Quarto 路径
 
@@ -57,7 +59,7 @@ New-Item -ItemType Junction -Path .cache\quarto -Target 'D:\Tools\Quarto'
 .\.venv\Scripts\python.exe note2lecture.py export '.\private\note.md' --profile markdown -o output/real-note-new
 ```
 
-该模式支持从首行 H1 提取书名、提升正文标题层级、生成缺少的标题和图片标签、转换空 HTML 锚点及同篇链接、保留无表题表格。没有作者不补写，手写章节号保留且不叠加自动编号。本地文档引用只作为文字与路径保留，发出 warning，不会打开或合并被引用文档；PNG/JPEG 仍按资源规则检查并打包。
+该模式支持从首行 H1 提取书名、提升正文标题层级、生成缺少的标题和图片标签、转换空 HTML 锚点及同篇链接、保留无表题表格。也支持列表续行中的缩进独立公式、首尾有空格或段内软换行的行内公式、多段列表（最多四层）、`1)` / `(1)` 列表、显式换行、分隔线及顶层目录占位符 `[toc]`。常见反三角函数、积分、显式盒子及简单手写 `\tag` 编号的边界见适配规则。没有作者不补写，手写章节号保留且不叠加自动编号。本地文档引用只作为文字与路径保留，发出 warning，不会打开或合并被引用文档；PNG/JPEG 仍按资源规则检查并打包。
 
 样例覆盖的双链、图片嵌入及 note/tip/warning 提示框需显式选择 obsidian 模式；详细边界见 [obsidian-fixture.md](obsidian-fixture.md)：
 
@@ -98,6 +100,8 @@ xelatex -no-shell-escape -halt-on-error -interaction=nonstopmode main.tex
 ```
 
 CLI 输出 JSON；检查或编译成功退出 0，有错误退出 2。`export` 即使编译成功，也保留 `partial` 和未完成的内容/页面检查状态，不自动宣称完整验收；存在编译、资源、缺字、未定义引用或溢出错误时为 `failed`。固定样例的实际工程验收另见 [N1 验收记录](n1-validation.md)，不把它泛化为任意输入都已检查。
+
+“缺少公式保护标记”表示程序检测到中间输出不完整，应排查工具调用和后端；这不等于原笔记存在未闭合公式。保留失败目录供检查，修复后换新输出目录重试，保护检查继续保留。
 
 重复标签报告原文两处位置；有歧义的文本定位与 TeX 映射标为 `approximate`。定位精度不够时，应同时查看 `source-map.json`、原文与构建日志。输出冲突不改旧目录，仅在终端报告 `OUTPUT_EXISTS`。
 

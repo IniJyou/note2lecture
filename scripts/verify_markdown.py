@@ -14,12 +14,13 @@ from verify_n1 import checked, labels_in_aux, prose_tokens, recompile  # noqa: E
 
 from note2lecture.document import digest, nodes, read_document  # noqa: E402
 from note2lecture.exporter import write_json  # noqa: E402
-from note2lecture.tools import find_quarto, pandoc  # noqa: E402
+from note2lecture.math_input import parse_ast  # noqa: E402
+from note2lecture.tools import find_quarto  # noqa: E402
 
 
 def compact(text):
     # PDF 的布局空白、英文断词与兼容字形不算正文改写；公式另以原文字节核对。
-    return re.sub(r"[\s\u00ad-]+", "", unicodedata.normalize("NFKC", text))
+    return re.sub(r"[\s\u00ad\u200b-]+", "", unicodedata.normalize("NFKC", text))
 
 
 def verify(input_path, output, review, profile="markdown"):
@@ -41,13 +42,24 @@ def verify(input_path, output, review, profile="markdown"):
         assert digest((input_path.parent / resource["original"]).read_bytes()) == resource["sha256"]
     for code in doc.code:
         assert (package / "code" / (digest(code.encode()) + ".txt")).read_bytes() == code.encode()
-    # 独立对照原始 Markdown AST：仅去掉完整行的空 HTML 锚点，不使用适配后的正文。
+    # 从原稿重解析，复用数学语法解码但不使用结构适配后的正文。
+    # 仅去掉完整行的空 HTML 锚点，保留字符数，数学位置仍指向原稿。
     original = re.sub(
         r'(?m)^<a\s+id="[A-Za-z][A-Za-z0-9_-]*"\s*></a>[^\S\n]*$',
-        "",
+        lambda match: " " * len(match[0]),
         doc.source.text,
     )
-    original_ast = json.loads(pandoc(quarto, original, doc.reader, "json"))
+    original_ast = parse_ast(doc, original, quarto)
+    original_ast["blocks"] = [
+        block
+        for block in original_ast["blocks"]
+        if not (
+            block["t"] == "Para"
+            and len(block["c"]) == 1
+            and block["c"][0]["t"] == "Str"
+            and block["c"][0]["c"].lower() == "[toc]"
+        )
+    ]
     original_math = [x["c"][1] for x in nodes(original_ast["blocks"]) if x["t"] == "Math"]
     assert original_math == [x["text"] for x in doc.math]
     if profile == "obsidian":

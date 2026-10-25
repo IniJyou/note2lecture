@@ -1,0 +1,233 @@
+% 保守的竖版长公式分行：只插入外层关系符之前的排版标记。
+% 原始参数始终完整保留；删除生成标记后，TeX token 必须与原文完全相同。
+\ExplSyntaxOn
+\cs_generate_variant:Nn \clist_if_in:nnT { ee }
+\cs_generate_variant:Nn \str_head:n { e }
+\tl_new:N \l__ntwol_original_tl
+\tl_new:N \l__ntwol_wrapped_tl
+\tl_new:N \l__ntwol_verified_tl
+\int_new:N \l__ntwol_delimiter_int
+\int_new:N \l__ntwol_argument_int
+\int_new:N \l__ntwol_breaks_int
+\bool_new:N \l__ntwol_safe_bool
+\bool_new:N \l__ntwol_skip_delimiter_bool
+\bool_new:N \l__ntwol_relation_bool
+\bool_new:N \l__ntwol_content_bool
+\bool_new:N \l__ntwol_force_first_bool
+\bool_new:N \l__ntwol_evaluation_bar_bool
+
+\cs_new:Npn \NtwoLWrapBreak { \\ & }
+\cs_new_protected:Npn \__ntwol_add_break:
+  {
+    \tl_put_right:Nn \l__ntwol_wrapped_tl { \NtwoLWrapBreak }
+    \int_incr:N \l__ntwol_breaks_int
+  }
+\cs_new_protected:Npn \__ntwol_relation:
+  {
+    \int_compare:nNnT { \l__ntwol_delimiter_int } = { 0 }
+      {
+        \bool_if:NT \l__ntwol_content_bool
+          {
+            \bool_if:nT { \l__ntwol_relation_bool || \l__ntwol_force_first_bool }
+              { \__ntwol_add_break: }
+          }
+        \bool_set_true:N \l__ntwol_relation_bool
+      }
+  }
+\cs_new_protected:Npn \__ntwol_logical_relation:
+  {
+    \int_compare:nNnT { \l__ntwol_delimiter_int } = { 0 }
+      {
+        \bool_if:NT \l__ntwol_content_bool { \__ntwol_add_break: }
+        \bool_set_false:N \l__ntwol_relation_bool
+      }
+  }
+\cs_new_protected:Npn \__ntwol_open_delimiter:
+  { \int_incr:N \l__ntwol_delimiter_int }
+\cs_new_protected:Npn \__ntwol_close_delimiter:
+  {
+    \int_decr:N \l__ntwol_delimiter_int
+    \int_compare:nNnT { \l__ntwol_delimiter_int } < { 0 }
+      { \bool_set_false:N \l__ntwol_safe_bool }
+  }
+\cs_new_protected:Npn \__ntwol_scan:
+  {
+    \peek_meaning_remove:NTF \q_stop { }
+      {
+        \peek_meaning_remove:NTF \c_space_token
+          { \tl_put_right:Nn \l__ntwol_wrapped_tl { ~ } \__ntwol_scan: }
+          {
+            \peek_meaning:NTF \c_group_begin_token
+              { \__ntwol_group:n } { \__ntwol_token:N }
+          }
+      }
+  }
+\cs_new_protected:Npn \__ntwol_group:n #1
+  {
+    \tl_put_right:Nn \l__ntwol_wrapped_tl { {#1} }
+    \int_compare:nNnT { \l__ntwol_argument_int } > { 0 }
+      { \int_decr:N \l__ntwol_argument_int }
+    \bool_set_true:N \l__ntwol_content_bool
+    \__ntwol_scan:
+  }
+\cs_new_protected:Npn \__ntwol_control:N #1
+  {
+    \str_if_eq:eeT {\cs_to_str:N #1} {\c_left_brace_str}
+      {\__ntwol_open_delimiter:}
+    \str_if_eq:eeT {\cs_to_str:N #1} {\c_right_brace_str}
+      {\__ntwol_close_delimiter:}
+    \str_case_e:nnF { \cs_to_str:N #1 }
+      {
+        { left } { \__ntwol_open_delimiter: \bool_set_true:N \l__ntwol_skip_delimiter_bool }
+        { right } { \__ntwol_close_delimiter: \bool_set_true:N \l__ntwol_skip_delimiter_bool }
+        { bigl } { \__ntwol_open_delimiter: \bool_set_true:N \l__ntwol_skip_delimiter_bool }
+        { Bigl } { \__ntwol_open_delimiter: \bool_set_true:N \l__ntwol_skip_delimiter_bool }
+        { biggl } { \__ntwol_open_delimiter: \bool_set_true:N \l__ntwol_skip_delimiter_bool }
+        { Biggl } { \__ntwol_open_delimiter: \bool_set_true:N \l__ntwol_skip_delimiter_bool }
+        { bigr } { \__ntwol_close_delimiter: \bool_set_true:N \l__ntwol_skip_delimiter_bool }
+        { Bigr } { \__ntwol_close_delimiter: \bool_set_true:N \l__ntwol_skip_delimiter_bool }
+        { biggr } { \__ntwol_close_delimiter: \bool_set_true:N \l__ntwol_skip_delimiter_bool }
+        { Biggr } { \__ntwol_close_delimiter: \bool_set_true:N \l__ntwol_skip_delimiter_bool }
+        { langle } { \__ntwol_open_delimiter: }
+        { rangle } { \__ntwol_close_delimiter: }
+        { lvert } { \__ntwol_open_delimiter: }
+        { rvert } { \__ntwol_close_delimiter: }
+        { lVert } { \__ntwol_open_delimiter: }
+        { rVert } { \__ntwol_close_delimiter: }
+        { lbrace } { \__ntwol_open_delimiter: }
+        { rbrace } { \__ntwol_close_delimiter: }
+        { vert } { \bool_set_false:N \l__ntwol_safe_bool }
+        { Vert } { \bool_set_false:N \l__ntwol_safe_bool }
+        { | } { \bool_set_false:N \l__ntwol_safe_bool }
+        { Longleftrightarrow } { \__ntwol_logical_relation: }
+        { Leftrightarrow } { \__ntwol_logical_relation: }
+        { Longrightarrow } { \__ntwol_logical_relation: }
+        { Rightarrow } { \__ntwol_logical_relation: }
+        { iff } { \__ntwol_logical_relation: }
+        { implies } { \__ntwol_logical_relation: }
+        { le } { \__ntwol_relation: }
+        { leq } { \__ntwol_relation: }
+        { ge } { \__ntwol_relation: }
+        { geq } { \__ntwol_relation: }
+        { ne } { \__ntwol_relation: }
+        { neq } { \__ntwol_relation: }
+        { frac } { \int_set:Nn \l__ntwol_argument_int { 2 } }
+        { dfrac } { \int_set:Nn \l__ntwol_argument_int { 2 } }
+        { tfrac } { \int_set:Nn \l__ntwol_argument_int { 2 } }
+        { binom } { \int_set:Nn \l__ntwol_argument_int { 2 } }
+        { dbinom } { \int_set:Nn \l__ntwol_argument_int { 2 } }
+        { underset } { \int_set:Nn \l__ntwol_argument_int { 2 } }
+        { overset } { \int_set:Nn \l__ntwol_argument_int { 2 } }
+        { begin } { \bool_set_false:N \l__ntwol_safe_bool }
+        { end } { \bool_set_false:N \l__ntwol_safe_bool }
+        { tag } { \bool_set_false:N \l__ntwol_safe_bool }
+      }
+      {
+        \clist_if_in:eeT
+          {\tl_to_str:n {sqrt,mathbb,mathrm,mathbf,mathit,mathcal,mathsf,mathtt,operatorname,
+           text,textrm,boldsymbol,bar,overline,underline,hat,widehat,tilde,
+           widetilde,vec,dot,ddot,pmod,hspace,underbrace,overbrace,substack,boxed}}
+          {\cs_to_str:N #1}
+          {\int_set:Nn \l__ntwol_argument_int {1}}
+      }
+    \token_if_eq_meaning:NNT #1 \\ { \bool_set_false:N \l__ntwol_safe_bool }
+  }
+\cs_new_protected:Npn \__ntwol_character:N #1
+  {
+    \token_if_eq_charcode:NNT #1 ( { \__ntwol_open_delimiter: }
+    \token_if_eq_charcode:NNT #1 [ { \__ntwol_open_delimiter: }
+    \token_if_eq_charcode:NNT #1 ) { \__ntwol_close_delimiter: }
+    \token_if_eq_charcode:NNT #1 ] { \__ntwol_close_delimiter: }
+    \token_if_eq_charcode:NNT #1 ⟨ { \__ntwol_open_delimiter: }
+    \token_if_eq_charcode:NNT #1 ⟩ { \__ntwol_close_delimiter: }
+    \token_if_eq_charcode:NNT #1 ⌊ { \__ntwol_open_delimiter: }
+    \token_if_eq_charcode:NNT #1 ⌋ { \__ntwol_close_delimiter: }
+    \token_if_eq_charcode:NNT #1 ⌈ { \__ntwol_open_delimiter: }
+    \token_if_eq_charcode:NNT #1 ⌉ { \__ntwol_close_delimiter: }
+    \token_if_eq_charcode:NNT #1 ‖ { \bool_set_false:N \l__ntwol_safe_bool }
+    \token_if_eq_charcode:NNT #1 ∣ { \bool_set_false:N \l__ntwol_safe_bool }
+    \token_if_eq_charcode:NNT #1 = { \__ntwol_relation: }
+    \token_if_eq_charcode:NNT #1 < { \__ntwol_relation: }
+    \token_if_eq_charcode:NNT #1 > { \__ntwol_relation: }
+    \token_if_eq_charcode:NNT #1 & { \bool_set_false:N \l__ntwol_safe_bool }
+    \token_if_eq_charcode:NNT #1 |
+      { \bool_set_true:N \l__ntwol_evaluation_bar_bool }
+    \token_if_eq_charcode:NNT #1 ^ { \int_set:Nn \l__ntwol_argument_int { 1 } }
+    \token_if_eq_charcode:NNT #1 _ { \int_set:Nn \l__ntwol_argument_int { 1 } }
+  }
+\cs_new_protected:Npn \__ntwol_token:N #1
+  {
+    % 只接受后接上下标的求值竖线；成对裸竖线的边界有歧义，不猜测。
+    \bool_if:NT \l__ntwol_evaluation_bar_bool
+      {
+        \bool_set_false:N \l__ntwol_evaluation_bar_bool
+        \token_if_eq_charcode:NNF #1 _
+          {
+            \token_if_eq_charcode:NNF #1 ^
+              { \bool_set_false:N \l__ntwol_safe_bool }
+          }
+      }
+    \bool_if:NTF \l__ntwol_skip_delimiter_bool
+      { \bool_set_false:N \l__ntwol_skip_delimiter_bool }
+      {
+        \int_compare:nNnTF { \l__ntwol_argument_int } > { 0 }
+          { \int_decr:N \l__ntwol_argument_int }
+          {
+            % unicode-math 的数学字符命令在 token_if_cs 下会被视作隐式字符；
+            % 用不展开的 token 拼写识别命令，才能识别 \leq 和 \Longleftrightarrow。
+            \str_if_eq:eeTF {\str_head:e {\token_to_str:N #1}} {\c_backslash_str}
+              { \__ntwol_control:N #1 } { \__ntwol_character:N #1 }
+          }
+      }
+    \tl_put_right:Nn \l__ntwol_wrapped_tl { #1 }
+    \bool_set_true:N \l__ntwol_content_bool
+    \__ntwol_scan:
+  }
+\cs_new_protected:Npn \__ntwol_plan:n #1
+  {
+    \tl_set:Nn \l__ntwol_original_tl {#1}
+    \tl_clear:N \l__ntwol_wrapped_tl
+    \int_zero:N \l__ntwol_delimiter_int
+    \int_zero:N \l__ntwol_argument_int
+    \int_zero:N \l__ntwol_breaks_int
+    \bool_set_true:N \l__ntwol_safe_bool
+    \bool_set_false:N \l__ntwol_skip_delimiter_bool
+    \bool_set_false:N \l__ntwol_relation_bool
+    \bool_set_false:N \l__ntwol_content_bool
+    \bool_set_false:N \l__ntwol_evaluation_bar_bool
+    \__ntwol_scan: #1 \q_stop
+    \int_compare:nNnF { \l__ntwol_delimiter_int } = { 0 }
+      { \bool_set_false:N \l__ntwol_safe_bool }
+    \bool_if:NT \l__ntwol_evaluation_bar_bool
+      { \bool_set_false:N \l__ntwol_safe_bool }
+    \tl_set_eq:NN \l__ntwol_verified_tl \l__ntwol_wrapped_tl
+    \tl_remove_all:Nn \l__ntwol_verified_tl { \NtwoLWrapBreak }
+    \tl_if_eq:NNF \l__ntwol_verified_tl \l__ntwol_original_tl
+      { \bool_set_false:N \l__ntwol_safe_bool }
+  }
+\cs_new_protected:Npn \__ntwol_measure_plan:
+  {
+    \bool_if:NTF \l__ntwol_safe_bool
+      { \sbox{\NtwoLMathBox}{$\displaystyle\begin{aligned}&\tl_use:N \l__ntwol_wrapped_tl\end{aligned}$} }
+      { \NtwoLWidthError }
+  }
+\NewDocumentCommand \NtwoLWrapDisplay { m }
+  {
+    \bool_set_false:N \l__ntwol_force_first_bool
+    \__ntwol_plan:n {#1}
+    \__ntwol_measure_plan:
+    \ifdim\wd\NtwoLMathBox>1.12\linewidth
+      \bool_set_true:N \l__ntwol_force_first_bool
+      \__ntwol_plan:n {#1}
+      \__ntwol_measure_plan:
+    \fi
+    \ifdim\wd\NtwoLMathBox>1.12\linewidth
+      \NtwoLWidthError
+    \else
+      \typeout{N2LWRAPPED:\NtwoLCurrentFormula}
+      \typeout{N2LWRAPROWS:\int_eval:n {\l__ntwol_breaks_int+1}}
+      \typeout{N2LWRAPDIMS:\the\wd\NtwoLMathBox :\the\linewidth}
+      \[\NtwoLDisplay{\begin{aligned}&\tl_use:N \l__ntwol_wrapped_tl\end{aligned}}\]
+    \fi
+  }
+\ExplSyntaxOff

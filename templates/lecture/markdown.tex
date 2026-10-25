@@ -1,18 +1,34 @@
-% 普通 Markdown 仅做版面适配；公式原文不变，不作自动断行。
+% 普通 Markdown 仅做版面适配；公式原文保留，超宽公式的 token 副本按规则分行。
 % 主模板的深度设置在此关闭，保留原稿自带的章节编号。
 \setcounter{secnumdepth}{-1}
+% 使用已选定的 Fandol 正文字体排数学环境中的中文，不改写公式正文。
+\xeCJKsetup{CJKmath=true}
+% Latin Modern 正文字体不含这三个字符；使用现有字体显示同一 Unicode 字形。
+\newfontfamily\NtwoLCircleFont[BoldFont=FandolSong-Bold.otf]{FandolSong-Regular.otf}
+\newfontfamily\NtwoLProofFont{latinmodern-math.otf}
+\newcommand{\NtwoLTextSymbol}[1]{%
+  {\ifnum`#1="220E \NtwoLProofFont\else\NtwoLCircleFont\fi #1}%
+}
 % 标题中的英文词尽量整体换行，不把单词拆成跨行连字。
 \pretocmd{\maketitle}{\begingroup\raggedright\hyphenpenalty=10000}{}{}
 \apptocmd{\maketitle}{\endgroup}{}{}
 % 小节题头至少与几行正文同页，避免长笔记中题头孤立在页底。
 \pretocmd{\subsection}{\Needspace{9\baselineskip}}{}{}
 \pretocmd{\subsubsection}{\Needspace{9\baselineskip}}{}{}
+% 在条目开始前预留题头和正文空间；不能放入条目内部，以免推迟列表标记。
+\pretocmd{\item}{\Needspace{4\baselineskip}}{}{}
 \newsavebox{\NtwoLMathBox}
+\newcommand{\NtwoLCurrentFormula}{}
+\newcommand{\NtwoLWidthError}{%
+  \typeout{N2LWIDE:\NtwoLCurrentFormula}%
+  \typeout{N2LDIMS:\the\wd\NtwoLMathBox:\the\linewidth}%
+  \PackageError{note2lecture}{N2L_MATH_TOO_WIDE}%
+    {Formula cannot be safely wrapped within the portrait page.}%
+}
 \newcommand{\NtwoLDisplay}[1]{%
   \sbox{\NtwoLMathBox}{$\displaystyle #1$}%
   \ifdim\wd\NtwoLMathBox>1.12\linewidth
-    \PackageError{note2lecture}{Display formula exceeds readable width}%
-      {Add explicit line breaks in a separate working copy.}%
+    \NtwoLWidthError
   \else
     \ifdim\wd\NtwoLMathBox>\linewidth
       \resizebox{\linewidth}{!}{\usebox{\NtwoLMathBox}}%
@@ -20,4 +36,17 @@
       \usebox{\NtwoLMathBox}%
     \fi
   \fi
+}
+% 普通独立公式保持竖版；超宽时只在明确的外层关系符处分行。
+% 原公式作为完整参数保留，分行只作用于 token 副本并验证 token 不变。
+\newcommand{\NtwoLMathDisplay}[2]{%
+  \begingroup
+  \def\NtwoLCurrentFormula{#1}%
+  \sbox{\NtwoLMathBox}{$\displaystyle #2$}%
+  \ifdim\wd\NtwoLMathBox>1.12\linewidth
+    \NtwoLWrapDisplay{#2}%
+  \else
+    \[\NtwoLDisplay{#2}\]%
+  \fi
+  \endgroup
 }
