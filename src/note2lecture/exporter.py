@@ -5,6 +5,7 @@ import json
 import re
 import shutil
 import sys
+from collections import Counter
 from pathlib import Path
 
 import PIL
@@ -12,7 +13,7 @@ import yaml
 
 from . import __version__
 from .diagnostics import Diagnostic, NoteError
-from .document import digest, nodes, read_document
+from .document import digest, nodes, plain, read_document
 from .tools import ROOT, find_quarto, pandoc, run, tool_versions
 
 FONT_FILES = [
@@ -78,6 +79,26 @@ def ref_tex(identifier):
     return r"\hyperref[" + identifier + "]{" + visible + "}"
 
 
+def bookmark_text(text):
+    """书签使用公式源码的普通文本表示，TeX 特殊字符只作字面显示。"""
+    escapes = {
+        "\\": r"\textbackslash{}", "{": r"\{", "}": r"\}", "$": r"\$",
+        "&": r"\&", "#": r"\#", "%": r"\%", "_": r"\_",
+        "^": r"\textasciicircum{}", "~": r"\textasciitilde{}",
+    }
+    return "".join(escapes.get(char, char) for char in " ".join(text.split()))
+
+
+TEXT_SYMBOLS = {"①", "②", "∎"}
+
+
+def heading_bookmark(heading):
+    return any(
+        x["t"] == "Math" or (x["t"] == "Str" and TEXT_SYMBOLS.intersection(x["c"]))
+        for x in nodes(heading)
+    )
+
+
 def prepare_ast(doc, package):
     ast = copy.deepcopy(doc.ast)
     resources = {x["original"]: x for x in doc.resources}
@@ -87,9 +108,24 @@ def prepare_ast(doc, package):
         if heading["t"] == "Header"
         for child in nodes(heading)
     }
+    numbered_displays = {
+        id(child)
+        for block in nodes(ast["blocks"])
+        if block["t"] in {"Para", "Plain"}
+        and any(
+            x["t"] == "Str" and re.fullmatch(r"\{#eq-[a-z0-9-]+\}", x["c"])
+            for x in block["c"]
+        )
+        for child in nodes(block)
+        if child["t"] == "Math" and child["c"][0]["t"] == "DisplayMath"
+    }
     for item in nodes(ast["blocks"]):
         kind, c = item["t"], item.get("c")
-        if kind == "Cite":
+        if doc.markdown_mode and kind == "Header" and heading_bookmark(item):
+            c[2].append(
+                {"t": "RawInline", "c": ["latex", r"\NtwoLHeadingBookmark{" + c[1][0] + "}"]}
+            )
+        elif kind == "Cite":
             item.update(t="RawInline", c=["latex", ref_tex(c[0][0]["citationId"])])
         elif kind == "Image":
             from urllib.parse import unquote
@@ -105,9 +141,40 @@ def prepare_ast(doc, package):
             (package / "code").mkdir(exist_ok=True)
             (package / target).write_bytes(data)
             c[0][2].append(["n2l-code", target])
-        elif doc.markdown_mode and kind == "Math" and c[0]["t"] == "DisplayMath":
-            # 保留原公式正文；只在略宽时缩放，超过 12% 则编译报错。
-            c[1] = r"\NtwoLDisplay{" + c[1] + "}"
+        elif doc.markdown_mode and kind == "Math":
+            if id(item) in heading_nodes:
+                # 原生书签写出器会把后端占位符当成题头，故题头数学显式提供纯文本书签。
+                item.update(
+                    t="RawInline",
+                    c=["latex", r"\texorpdfstring{\(" + c[1] + r"\)}{" + bookmark_text(c[1]) + "}"],
+                )
+                continue
+            # 保护行内空格/软换行及独立公式缩进；后端完成后统一恢复原文。
+            token = r"\NtwoLMathToken{" + digest(c[1].encode()) + "}"
+            if (
+                c[0]["t"] == "DisplayMath"
+                and id(item) not in numbered_displays
+                and not re.search(r"\\tag\b", c[1])
+            ):
+                # 宏从正文环境测宽并按需分行，不能套在已有的 \[...\] 中。
+                item.update(
+                    t="RawInline",
+                    c=["latex", r"\NtwoLMathDisplay{" + digest(c[1].encode()) + "}{" + token + "}"],
+                )
+                continue
+            if c[0]["t"] == "DisplayMath" and not re.search(r"\\tag\b", c[1]):
+                token = r"\NtwoLDisplay{" + token + "}"
+            c[1] = token
+        elif doc.markdown_mode and kind == "Str" and TEXT_SYMBOLS.intersection(c):
+            # 只切换已知缺字的字体，保留原 Unicode 字符；代码和数学不走此路径。
+            pieces = re.split("([①②∎])", c)
+            item.update(t="Span", c=[["", [], []], [
+                {"t": "RawInline", "c": ["latex", r"\NtwoLTextSymbol{" + p + "}"]}
+                if p in TEXT_SYMBOLS else {"t": "Str", "c": p}
+                for p in pieces if p
+            ]])
+            if id(item) in heading_nodes:
+                heading_nodes.update(id(x) for x in nodes(item))
         elif doc.markdown_mode and kind in {"Code", "Str"} and id(item) not in heading_nodes:
             text = c[1] if kind == "Code" else c
             if (
@@ -197,6 +264,55 @@ def adapt_preamble(tex):
     return preamble + separator + body
 
 
+def restore_display_math(tex, doc):
+    """仅展开程序生成的行内/独立数学占位符，保持空格和换行。"""
+    if not doc.markdown_mode:
+        return tex
+    expected = {}
+    heading_math = Counter(
+        digest(node["c"][1].encode())
+        for heading in nodes(doc.ast["blocks"]) if heading["t"] == "Header"
+        for node in nodes(heading) if node["t"] == "Math"
+    )
+    for math in doc.math:
+        if heading_math[math["sha256"]]:
+            heading_math[math["sha256"]] -= 1
+            continue
+        expected.setdefault(math["sha256"], []).append(math["text"])
+
+    def restore(match):
+        entries = expected.get(match[1], [])
+        if not entries:
+            doc.source.error("COMPILE_FAILED", "后端产生了非预期的公式占位符。", block="math")
+        return entries.pop()
+
+    tex = re.sub(r"\\NtwoLMathToken\{([0-9a-f]{64})\}", restore, tex)
+    if any(expected.values()):
+        missing = [text for entries in expected.values() for text in entries]
+        doc.source.error(
+            "COMPILE_FAILED",
+            f"排版后端缺少 {len(missing)} 处公式保护标记，导出已停止。",
+            missing[0],
+            block="math",
+            hint="这是后端输出完整性问题；保留本次中间文件供排查，不要删除保护检查。",
+        )
+    for heading in nodes(doc.ast["blocks"]):
+        if heading["t"] != "Header" or not heading_bookmark(heading):
+            continue
+        ident = heading["c"][1][0]
+        marker = r"\NtwoLHeadingBookmark{" + ident + "}"
+        start = tex.find(marker)
+        boundary = start + len(marker)
+        while boundary < len(tex) and tex[boundary].isspace():
+            boundary += 1
+        label = tex.find(r"\label{" + ident + "}", boundary)
+        if start < 0 or tex[boundary : boundary + 2] != "}{" or tex[label - 2 : label] != "}}":
+            doc.source.error("COMPILE_FAILED", "后端标题书签结构无法安全恢复。", ident)
+        fallback = bookmark_text(plain(heading["c"][2]))
+        tex = tex[:start] + "}{" + fallback + "}}" + tex[label:]
+    return tex
+
+
 def tex_source_map(tex, doc):
     markers = []
     for number, line in enumerate(tex.splitlines(), 1):
@@ -238,6 +354,38 @@ def log_diagnostics(log, doc, mapping):
                 )
             )
     return diagnostics
+
+
+def math_width_diagnostic(log, doc):
+    """测宽标记携带原公式摘要，避免把整个大段落起点冒充出错公式位置。"""
+    hit = re.search(r"N2LWIDE:([0-9a-f]{64})", log)
+    if not hit:
+        return None
+    formula = next((m for m in doc.math if m["sha256"] == hit[1]), None)
+    if formula is None:
+        return None
+    needle = formula["text"].strip()
+    offset = doc.source.text.find(needle)
+    approximate = offset < 0 or doc.source.text.count(needle) != 1
+    if offset < 0:
+        first = next((line.strip() for line in needle.splitlines() if line.strip()), "")
+        offset = doc.source.text.find(first)
+    line, column = doc.source.position(offset)
+    dimensions = re.search(r"N2LDIMS:([\d.]+)pt:([\d.]+)pt", log)
+    detail = ""
+    if dimensions:
+        width, available = (float(x) * 25.4 / 72.27 for x in dimensions.groups())
+        detail = f"（公式约 {width:.1f} mm，可用 {available:.1f} mm）"
+    return Diagnostic(
+        "LAYOUT_OVERFLOW",
+        "公式仍超过当前页面的可读宽度" + detail + "。",
+        doc.path.name,
+        line,
+        column,
+        block="math",
+        hint="保留原稿；需要为此公式单独选择排版方式，查看 _build/xelatex-1.log。",
+        approximate=approximate,
+    )
 
 
 SOURCE_README = """# 可编辑 LaTeX 源包
@@ -297,7 +445,7 @@ def export_document(input_path, output, quarto=None, profile="strict"):
         template_hashes = {}
         template_files = ["header.tex", "code.lua"]
         if doc.markdown_mode:
-            template_files.extend(["markdown.tex", "markdown.lua"])
+            template_files.extend(["markdown.tex", "markdown.lua", "math-wrap.tex"])
         if doc.profile == "obsidian":
             template_files.extend(["obsidian.tex", "obsidian.lua"])
         for filename in template_files:
@@ -319,6 +467,7 @@ def export_document(input_path, output, quarto=None, profile="strict"):
         if doc.markdown_mode:
             config["format"]["latex"]["number-sections"] = False
             config["format"]["latex"]["include-in-header"].append("template/markdown.tex")
+            config["format"]["latex"]["include-in-header"].append("template/math-wrap.tex")
             config["filters"].append("template/markdown.lua")
         if doc.profile == "obsidian":
             config["format"]["latex"]["include-in-header"].append("template/obsidian.tex")
@@ -343,7 +492,7 @@ def export_document(input_path, output, quarto=None, profile="strict"):
                 hint="查看 _build/quarto.log；未启用自动安装。",
             )
         tex_path = package / "main.tex"
-        tex = adapt_preamble(tex_path.read_text(encoding="utf-8"))
+        tex = restore_display_math(adapt_preamble(tex_path.read_text(encoding="utf-8")), doc)
         for math in doc.math:
             if math["text"] not in tex:
                 doc.source.error(
@@ -374,6 +523,9 @@ def export_document(input_path, output, quarto=None, profile="strict"):
                 result.stdout + result.stderr, encoding="utf-8"
             )
             if result.returncode:
+                width_error = math_width_diagnostic(result.stdout, doc)
+                if width_error is not None:
+                    raise NoteError(width_error)
                 hit = re.search(r"main\.tex:(\d+):[^\n]*", result.stdout)
                 line = int(hit[1]) if hit else 0
                 marks = [x for x in mapping["markers"] if x["tex_line"] <= line]

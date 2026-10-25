@@ -1,12 +1,11 @@
 """真实 Markdown 的确定性适配；只改结构，不补写作者或改写正文。"""
 
-import json
 import re
 from urllib.parse import unquote, urlsplit
 
 from .diagnostics import Diagnostic
 from .document import metadata_and_body, nodes, plain
-from .tools import pandoc
+from .math_input import parse_ast
 
 ANCHOR = re.compile(r'^<a\s+id="([A-Za-z][A-Za-z0-9_-]*)"\s*></a>\s*$')
 HEADING = re.compile(r"(?m)^(#{1,6})[ \t]+(.+)$")
@@ -55,11 +54,26 @@ def adapt_markdown(doc, quarto):
         pos += len(line)
     if anchors:
         # 复用本次已找到的 Quarto；不另外寻找或读取私人笔记。
-        doc.ast = json.loads(pandoc(quarto, "".join(chars), doc.reader, "json"))
+        doc.ast = parse_ast(doc, "".join(chars), quarto)
     if doc.profile == "obsidian":
         from .obsidian import adapt_obsidian
 
         adapt_obsidian(doc)
+    # Typora 的独占段落目录占位符映射到模板已有目录，不作为字面正文打印。
+    kept = []
+    for block in doc.ast["blocks"]:
+        if (
+            block["t"] == "Para"
+            and len(block["c"]) == 1
+            and block["c"][0]["t"] == "Str"
+            and block["c"][0]["c"].lower() == "[toc]"
+        ):
+            doc.adaptations.append(
+                {"kind": "toc", "from": block["c"][0]["c"], "to": "template-toc"}
+            )
+        else:
+            kept.append(block)
+    doc.ast["blocks"] = kept
     headers = [x for x in nodes(doc.ast["blocks"]) if x["t"] == "Header"]
     source_headers = list(HEADING.finditer(doc.body))
     source_headers = [
@@ -159,7 +173,14 @@ def adapt_markdown(doc, quarto):
             "author": "only_if_explicit",
             "table_columns": "equal",
             "inline_breaks": "ascii_separators_outside_headings",
-            "display_fit": {"max_width_ratio": 1.12, "text_unchanged": True},
+            "display_fit": {
+                "max_width_ratio": 1.12,
+                "text_unchanged": True,
+                "overflow": "portrait_outer_relation_wrap",
+                "ambiguous_or_still_wide": "error",
+                "tagged_equations": "native",
+                "numbered_equations": "native",
+            },
         }
     )
     if doc.obsidian:

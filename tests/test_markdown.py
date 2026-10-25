@@ -5,7 +5,8 @@ from PIL import Image
 
 from note2lecture.diagnostics import NoteError
 from note2lecture.document import nodes, plain, read_document
-from note2lecture.exporter import prepare_ast
+from note2lecture.exporter import prepare_ast, restore_display_math
+from note2lecture.tools import pandoc
 
 
 def read(tmp_path, quarto, text):
@@ -134,3 +135,107 @@ def test_number_reference_to_unnumbered_heading_is_explicitly_rejected(tmp_path,
         read(tmp_path, quarto, "# 笔记\n\n## 小节 {#sec-a}\n\n@sec-a\n")
     assert error.value.diagnostic.code == "UNSUPPORTED_SYNTAX"
     assert error.value.diagnostic.line == 5
+
+
+@pytest.mark.parametrize("profile", ["markdown", "obsidian"])
+@pytest.mark.parametrize("opening,closing", [("$$", "$$"), (r"\[", r"\]")])
+def test_list_paragraphs_and_indented_math_keep_content(
+    tmp_path, quarto, profile, opening, closing
+):
+    text = (
+        "# 原创测试\n\n## 列表公式\n\n- **条目**\n\n"
+        "  前段 \\(x_1\\) 与 $x_2$。\n\n"
+        f"  {opening}\n  \\dim V = 2\n  {closing}\n\n"
+        "  中段。\n\n  - 子条目\n\n"
+        f"    {opening}\n    y = x_1 + x_2\n    {closing}\n\n"
+        "  后段。\n\n---\n\n结尾。\n"
+    )
+    path = tmp_path / "note.md"
+    path.write_text(text, encoding="utf-8")
+    doc = read_document(path, quarto, profile)
+    assert [x["kind"] for x in doc.math] == [
+        "InlineMath", "InlineMath", "DisplayMath", "DisplayMath"
+    ]
+    assert [x["text"].strip() for x in doc.math] == ["x_1", "x_2", r"\dim V = 2", "y = x_1 + x_2"]
+    assert all(x in plain(doc.ast["blocks"]) for x in ["前段", "中段", "子条目", "后段", "结尾"])
+    assert sum(x["t"] == "HorizontalRule" for x in nodes(doc.ast["blocks"])) == 1
+    assert path.read_text(encoding="utf-8") == text
+
+
+@pytest.mark.parametrize("opening,closing", [("$$", "$$"), (r"\[", r"\]")])
+def test_unclosed_indented_display_reports_opening(tmp_path, quarto, opening, closing):
+    with pytest.raises(NoteError) as error:
+        read(tmp_path, quarto, f"# 标题\n\n- 条目\n\n  {opening}\n  x = 2\n")
+    assert error.value.diagnostic.code == "STRUCTURE_INVALID"
+    assert error.value.diagnostic.line == 5
+    assert "独立公式未闭合" in error.value.diagnostic.message
+
+
+@pytest.mark.parametrize("formula", [r"\(x", r"x\)", r"\(x\]", r"\[x\)"])
+def test_unpaired_backslash_math_is_not_silently_plain_text(tmp_path, quarto, formula):
+    with pytest.raises(NoteError) as error:
+        read(tmp_path, quarto, "# 标题\n\n" + formula + "\n")
+    assert error.value.diagnostic.code == "STRUCTURE_INVALID"
+    assert error.value.diagnostic.line == 3
+
+
+@pytest.mark.parametrize(
+    "body",
+    [r"\(\input{secret}\)", "- 条目\n\n  $$\n  \\input{secret}\n  $$"],
+)
+def test_added_math_syntax_still_rejects_unsafe_commands(tmp_path, quarto, body):
+    with pytest.raises(NoteError) as error:
+        read(tmp_path, quarto, "# 标题\n\n" + body + "\n")
+    assert error.value.diagnostic.code == "UNSUPPORTED_SYNTAX"
+    assert r"\input" in error.value.diagnostic.message
+
+
+def test_toc_placeholder_maps_only_standalone_body_paragraphs(tmp_path, quarto):
+    doc = read(
+        tmp_path,
+        quarto,
+        "# 标题\n\n[toc]\n\n[TOC]\n\n正文中的 [toc] 保留。\n\n"
+        "`[toc]` 与 `\\(literal\\)`。\n\n```text\n[toc]\n\\(not closed\n$$\n```\n",
+    )
+    assert [x for x in doc.adaptations if x["kind"] == "toc"] == [
+        {"kind": "toc", "from": "[toc]", "to": "template-toc"},
+        {"kind": "toc", "from": "[TOC]", "to": "template-toc"},
+    ]
+    assert "正文中的 [toc] 保留。" in plain(doc.ast["blocks"])
+    assert doc.code == ["[toc]\n\\(not closed\n$$"]
+    assert not doc.math
+
+
+@pytest.mark.parametrize("body", [r"\(x\)", "---", "- 条目\n\n  前段。\n\n  后段。"])
+def test_strict_profile_does_not_inherit_new_markdown_rules(tmp_path, quarto, body):
+    path = tmp_path / "note.md"
+    path.write_text("---\ntitle: 测试\nauthor: 示例\n---\n\n" + body + "\n", encoding="utf-8")
+    with pytest.raises(NoteError) as error:
+        read_document(path, quarto)
+    assert error.value.diagnostic.code == "UNSUPPORTED_SYNTAX"
+
+
+def test_markdown_list_depth_supports_four_levels_and_rejects_five(tmp_path, quarto):
+    text = "# 标题\n\n- 第一层\n  - 第二层\n    - 第三层\n      - 第四层\n"
+    doc = read(tmp_path, quarto, text)
+    assert sum(x["t"] == "BulletList" for x in nodes(doc.ast["blocks"])) == 4
+    with pytest.raises(NoteError) as error:
+        read(tmp_path, quarto, text + "        - 第五层\n")
+    assert error.value.diagnostic.code == "UNSUPPORTED_SYNTAX"
+
+
+def test_backend_indentation_cannot_change_display_math(tmp_path, quarto):
+    formula = "\n  x + y = 3\n"
+    doc = read(tmp_path, quarto, "# 标题\n\n- 条目\n\n  $$\n    x + y = 3\n  $$\n")
+    assert doc.math[0]["text"] == formula
+    ast = prepare_ast(doc, tmp_path)
+    import json
+
+    tex = pandoc(quarto, json.dumps(ast), "json", "latex")
+    restored = restore_display_math(tex, doc)
+    assert formula in restored
+    assert "NtwoLMathToken" not in restored
+    with pytest.raises(NoteError):
+        restore_display_math(tex.replace("NtwoLMathToken", "MissingToken"), doc)
+    with pytest.raises(NoteError):
+        restore_display_math(tex + tex, doc)

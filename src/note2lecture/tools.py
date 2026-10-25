@@ -54,11 +54,18 @@ def find_quarto(explicit=None):
     return Path(os.path.abspath(candidate))
 
 
+def pandoc_command(quarto):
+    # 本机 Quarto 包装命令在大 stdout 中转时会随机漏片段；直接运行它随附的同版 Pandoc。
+    # 保留英文联接路径，不改用 PATH 中另装的 Pandoc。
+    binary = "pandoc.exe" if os.name == "nt" else "pandoc"
+    bundled = Path(quarto).parent / "tools" / binary
+    return [bundled] if bundled.is_file() else [quarto, "pandoc"]
+
+
 def pandoc(quarto, text, input_format, output_format):
     result = run(
         [
-            quarto,
-            "pandoc",
+            *pandoc_command(quarto),
             "--from",
             input_format,
             "--to",
@@ -80,7 +87,7 @@ def pandoc(quarto, text, input_format, output_format):
 def tool_versions(quarto):
     commands = {
         "quarto": [quarto, "--version"],
-        "pandoc": [quarto, "pandoc", "--version"],
+        "pandoc": [*pandoc_command(quarto), "--version"],
         "xelatex": ["xelatex", "--version"],
     }
     versions = {}
