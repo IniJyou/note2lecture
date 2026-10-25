@@ -93,6 +93,22 @@ class Document:
     math: list = field(default_factory=list)
     source_map: list = field(default_factory=list)
     visible: str = ""
+    profile: str = "strict"
+    generated_labels: dict = field(default_factory=dict)
+    adaptations: list = field(default_factory=list)
+    warnings: list = field(default_factory=list)
+    internal_links: list = field(default_factory=list)
+    obsidian: dict = field(default_factory=dict)
+    callout_ids: set = field(default_factory=set)
+
+    @property
+    def markdown_mode(self):
+        return self.profile in {"markdown", "obsidian"}
+
+    @property
+    def reader(self):
+        base = "markdown-smart-latex_macros"
+        return base + ("+wikilinks_title_after_pipe" if self.profile == "obsidian" else "")
 
 
 def metadata_and_body(source):
@@ -217,11 +233,10 @@ def lexical_scan(doc, body_offset):
         s.error(
             "STRUCTURE_INVALID", "行内公式分隔符未闭合或写法不受支持。", offset=unmatched.start()
         )
-    bad = re.search(
-        r"\[\[|!\[\[|\[![A-Za-z]+\]|\{\{[<%]|\\[\[(]|"
-        r"(?m:^[ \t]*- \[[ xX]\])",
-        view,
-    )
+    unsupported = r"\{\{[<%]|\\[\[(]|(?m:^[ \t]*- \[[ xX]\])"
+    if doc.profile != "obsidian":
+        unsupported = r"\[\[|!\[\[|\[![A-Za-z]+\]|" + unsupported
+    bad = re.search(unsupported, view)
     if bad:
         s.error("UNSUPPORTED_SYNTAX", f"不支持的记号：{bad[0]}", offset=bad.start())
     # 手写 URI 编码与解析器产生的 %20 区分；仅检查图片目标。
@@ -241,7 +256,7 @@ def lexical_scan(doc, body_offset):
     doc.visible = view
 
 
-def read_document(path, quarto):
+def read_document(path, quarto, profile="strict"):
     path = Path(path).absolute()
     raw = path.read_bytes()
     try:
@@ -251,10 +266,23 @@ def read_document(path, quarto):
     source = Source(path.name, text)
     if path.suffix.lower() != ".md":
         source.error("UNSUPPORTED_SYNTAX", "入口必须为单篇 .md 文件。")
-    meta, body, offset = metadata_and_body(source)
-    doc = Document(path, source, meta, body, {}, digest(raw))
+    if profile not in {"strict", "markdown", "obsidian"}:
+        source.error("INPUT_METADATA", "未知输入模式。")
+    if profile in {"markdown", "obsidian"}:
+        from .markdown import markdown_input
+
+        meta, body, offset, adaptations = markdown_input(source, path.stem)
+    else:
+        meta, body, offset = metadata_and_body(source)
+        adaptations = []
+    doc = Document(path, source, meta, body, {}, digest(raw), profile=profile)
+    doc.adaptations = adaptations
     lexical_scan(doc, offset)
-    doc.ast = json.loads(pandoc(quarto, body, "markdown-smart-latex_macros", "json"))
+    doc.ast = json.loads(pandoc(quarto, body, doc.reader, "json"))
+    if doc.markdown_mode:
+        from .markdown import adapt_markdown
+
+        adapt_markdown(doc, quarto)
     validate_ast(doc)
     return doc
 
@@ -262,8 +290,10 @@ def read_document(path, quarto):
 def validate_math(doc, node):
     text = node["c"][1]
     s = doc.source
-    for command in re.finditer(r"\\([A-Za-z]+)", text):
-        if command[1] not in MATH_COMMANDS:
+    # 两个反斜线是矩阵换行，不能把 \\\\x 的第二个反斜线误判为命令。
+    for command in re.finditer(r"(?<!\\)(?:\\\\)*\\([A-Za-z]+)", text):
+        extra = {"longrightarrow", "Longrightarrow", "mid", "odot"}
+        if command[1] not in MATH_COMMANDS | (extra if doc.markdown_mode else set()):
             s.error(
                 "UNSUPPORTED_SYNTAX", f"不支持的数学命令：{command[0]}", command[0], block="math"
             )
@@ -319,13 +349,15 @@ def validate_ast(doc):
             r"\{#[^}\n]*\b" + re.escape(identifier) + r"\b[^}\n]*\}",
             doc.visible if kind != "eq" else s.text,
         )
-        if not occurrence:
+        generated = doc.generated_labels.get(identifier)
+        if not occurrence and generated is None:
             s.error("LABEL_INVALID", f"必须显式声明标签：{identifier}", identifier)
-        line, column = s.position(occurrence.start())
+        label_offset = generated if generated is not None else occurrence.start()
+        line, column = s.position(label_offset)
         if identifier in doc.labels:
             old = doc.labels[identifier]
             occurrences = list(re.finditer(re.escape("{#" + identifier + "}"), s.text))
-            second = occurrences[1].start() if len(occurrences) > 1 else occurrence.start()
+            second = occurrences[1].start() if len(occurrences) > 1 else label_offset
             s.error(
                 "LABEL_DUPLICATE",
                 f"重复标签：{identifier}",
@@ -355,8 +387,12 @@ def validate_ast(doc):
             "ColWidth",
         }:
             return  # Pandoc 的列表/列宽枚举不是正文节点。
+        if kind == "Span" and doc.markdown_mode and c[0] == ["", [], []]:
+            walk(c[1], in_env, list_depth, in_figure)
+            return
         if kind not in allowed:
-            s.error("UNSUPPORTED_SYNTAX", f"不支持的文档结构：{kind}", plain(value), block=kind)
+            needle = c[1] if kind in {"RawInline", "RawBlock"} else plain(value)
+            s.error("UNSUPPORTED_SYNTAX", f"不支持的文档结构：{kind}", needle, block=kind)
         if kind == "Header":
             if c[1][1] or c[1][2]:
                 s.error("UNSUPPORTED_SYNTAX", "标题不接受自定义样式属性。", plain(c[2]))
@@ -367,7 +403,10 @@ def validate_ast(doc):
                 label(c[1][0], "sec")
         elif kind == "Div":
             ident, classes, attrs = c[0]
-            if classes == ["proof"] and not ident and not attrs:
+            if id(value) in doc.callout_ids:
+                if any(x["t"] not in {"Para", "Plain"} for x in c[1]):
+                    s.error("UNSUPPORTED_SYNTAX", "提示框暂仅支持段落与公式。", plain(c[1]))
+            elif classes == ["proof"] and not ident and not attrs:
                 if any(x["t"] not in {"Para", "Plain"} for x in c[1]):
                     s.error("UNSUPPORTED_SYNTAX", "证明内仅支持段落与公式。", plain(c[1]))
             elif ident.split("-", 1)[0] in ENV and not classes and not attrs:
@@ -435,7 +474,8 @@ def validate_ast(doc):
                 # 兼容旧 Pandoc 将标签保留在表题文本的 AST。
                 hit = re.search(r"\{#(tbl-[a-z0-9-]+)\}", plain(c[1][1]))
                 ident = hit[1] if hit else ""
-            label(ident, "tbl")
+            if ident or doc.profile == "strict":
+                label(ident, "tbl")
             if c[5][1] or len(c[4]) != 1 or c[4][0][2]:
                 s.error("UNSUPPORTED_SYNTAX", "仅支持单表头基础表格。", ident)
             for row in [*c[3][1], *c[4][0][3]]:
@@ -444,17 +484,32 @@ def validate_ast(doc):
                         cell[2:4] != [1, 1]
                         or len(cell[4]) != 1
                         or cell[4][0]["t"] not in {"Plain", "Para"}
-                        or any(x["t"] == "Code" for x in nodes(cell[4]))
+                        or (
+                            doc.profile == "strict"
+                            and any(x["t"] == "Code" for x in nodes(cell[4]))
+                        )
                     ):
                         s.error("UNSUPPORTED_SYNTAX", "不支持合并或多块单元格。", ident)
         elif kind == "Link":
             parsed = urlsplit(c[2][0])
-            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            if doc.markdown_mode and c[2][0].startswith("#"):
+                if c[2][0][1:] not in doc.generated_labels and not re.search(
+                    r"\{#" + re.escape(c[2][0][1:]) + r"\}", doc.visible
+                ):
+                    s.error("REF_UNDEFINED", "页内链接目标不存在。", c[2][0])
+            elif parsed.scheme not in {"http", "https"} or not parsed.netloc:
                 s.error("UNSUPPORTED_SYNTAX", "普通链接仅接受 http/https 外链。", c[2][0])
         elif kind == "Cite":
             if len(c[0]) != 1 or c[0][0]["citationPrefix"] or c[0][0]["citationSuffix"]:
                 s.error("UNSUPPORTED_SYNTAX", "首版仅支持单目标 @标签 引用。", plain(c[1]))
             ident = c[0][0]["citationId"]
+            if doc.markdown_mode and ident.startswith("sec-"):
+                s.error(
+                    "UNSUPPORTED_SYNTAX",
+                    "Markdown 模式不生成章节号，请用 [说明](#锚点) 跳转。",
+                    "@" + ident,
+                    block="reference",
+                )
             doc.references.append(ident)
             return
         elif kind == "Str":

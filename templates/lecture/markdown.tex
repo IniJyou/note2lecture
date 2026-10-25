@@ -1,0 +1,23 @@
+% 普通 Markdown 仅做版面适配；公式原文不变，不作自动断行。
+% 主模板的深度设置在此关闭，保留原稿自带的章节编号。
+\setcounter{secnumdepth}{-1}
+% 标题中的英文词尽量整体换行，不把单词拆成跨行连字。
+\pretocmd{\maketitle}{\begingroup\raggedright\hyphenpenalty=10000}{}{}
+\apptocmd{\maketitle}{\endgroup}{}{}
+% 小节题头至少与几行正文同页，避免长笔记中题头孤立在页底。
+\pretocmd{\subsection}{\Needspace{9\baselineskip}}{}{}
+\pretocmd{\subsubsection}{\Needspace{9\baselineskip}}{}{}
+\newsavebox{\NtwoLMathBox}
+\newcommand{\NtwoLDisplay}[1]{%
+  \sbox{\NtwoLMathBox}{$\displaystyle #1$}%
+  \ifdim\wd\NtwoLMathBox>1.12\linewidth
+    \PackageError{note2lecture}{Display formula exceeds readable width}%
+      {Add explicit line breaks in a separate working copy.}%
+  \else
+    \ifdim\wd\NtwoLMathBox>\linewidth
+      \resizebox{\linewidth}{!}{\usebox{\NtwoLMathBox}}%
+    \else
+      \usebox{\NtwoLMathBox}%
+    \fi
+  \fi
+}

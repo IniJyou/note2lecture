@@ -4,6 +4,8 @@
 
 基础路径固定为单篇 Markdown＋本地资源 → PDF＋可编辑 LaTeX 源包，模型辅助关闭。只把明确语法映射到结构；普通段落即使写着“定理”也保持正文，不自动分类、补证明或修改数学含义。
 
+本文仍是默认 `--profile strict` 的约定。N2 新增的显式 `--profile markdown` 适配另见 [普通 Markdown 模式](markdown-profile.md)，不自动放宽本文的元数据、标签或资源校验。
+
 ## 1. 文档边界
 
 - 入口是一个本地 `.md` 文件，UTF-8，允许 BOM、LF 或 CRLF。工作副本可去 BOM 并统一为 LF；原文件和资源只读。无效 UTF-8 报错，不猜编码。

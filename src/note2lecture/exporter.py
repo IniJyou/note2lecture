@@ -81,6 +81,12 @@ def ref_tex(identifier):
 def prepare_ast(doc, package):
     ast = copy.deepcopy(doc.ast)
     resources = {x["original"]: x for x in doc.resources}
+    heading_nodes = {
+        id(child)
+        for heading in nodes(ast["blocks"])
+        if heading["t"] == "Header"
+        for child in nodes(heading)
+    }
     for item in nodes(ast["blocks"]):
         kind, c = item["t"], item.get("c")
         if kind == "Cite":
@@ -99,8 +105,27 @@ def prepare_ast(doc, package):
             (package / "code").mkdir(exist_ok=True)
             (package / target).write_bytes(data)
             c[0][2].append(["n2l-code", target])
+        elif doc.markdown_mode and kind == "Math" and c[0]["t"] == "DisplayMath":
+            # 保留原公式正文；只在略宽时缩放，超过 12% 则编译报错。
+            c[1] = r"\NtwoLDisplay{" + c[1] + "}"
+        elif doc.markdown_mode and kind in {"Code", "Str"} and id(item) not in heading_nodes:
+            text = c[1] if kind == "Code" else c
+            if (
+                re.fullmatch(r"[A-Za-z0-9_./-]+", text)
+                and re.search(r"[A-Za-z]", text)
+                and any(x in text for x in "_./")
+            ):
+                parts = re.split(r"([_./])", text)
+                escaped = "".join(
+                    (r"\_" if x == "_" else x) + (r"\allowbreak{}" if x in "_./" and x else "")
+                    for x in parts
+                )
+                if kind == "Code":
+                    escaped = r"\texttt{" + escaped + "}"
+                item.update(t="RawInline", c=["latex", escaped])
     # 源标记仅用于定位，不改变文档可见内容。
     marked = []
+    cursor = len(doc.source.text) - len(doc.body)
     for index, block in enumerate(ast["blocks"]):
         identifiers = [x["c"][1][0] for x in nodes(block) if x["t"] == "Header"]
         line = next((doc.labels[x]["line"] for x in identifiers if x in doc.labels), None)
@@ -112,9 +137,13 @@ def prepare_ast(doc, package):
                     candidates.append(item["c"][1])
                 elif item["t"] == "Str" and len(item["c"]) >= 3:
                     candidates.append(item["c"])
-            start = len(doc.source.text) - len(doc.body)
-            offsets = [doc.source.text.find(x, start) for x in candidates]
-            line = doc.source.position(next((x for x in offsets if x >= 0), 0))[0]
+            offsets = [doc.source.text.find(x, cursor) for x in candidates]
+            offset = next((x for x in offsets if x >= 0), cursor)
+            line = doc.source.position(offset)[0]
+        # 位置仍标为近似；顺序推进，避免重复词把后文错误映回早先章节。
+        line_start = sum(len(x) for x in doc.source.text.splitlines(keepends=True)[: line - 1])
+        end = doc.source.text.find("\n\n", line_start)
+        cursor = max(cursor, end + 2 if end >= 0 else line_start)
         marked.extend([{"t": "RawBlock", "c": ["latex", f"% N2L_SOURCE {line} {index}"]}, block])
     ast["blocks"] = marked
     return ast
@@ -234,7 +263,7 @@ normalized.md 是生成过程的工作副本，不是原稿；引用已转换为
 """
 
 
-def export_document(input_path, output, quarto=None):
+def export_document(input_path, output, quarto=None, profile="strict"):
     output = Path(output).absolute()
     if output.exists() or output.is_symlink():
         raise NoteError(
@@ -257,7 +286,8 @@ def export_document(input_path, output, quarto=None):
     try:
         quarto = find_quarto(quarto)
         versions, fonts = dependencies(quarto)
-        doc = read_document(input_path, quarto)
+        doc = read_document(input_path, quarto, profile)
+        report["diagnostics"] = [x.to_dict() for x in doc.warnings]
         report["checks"]["structure"] = True
         package = output / "lecture-source"
         package.mkdir()
@@ -265,7 +295,12 @@ def export_document(input_path, output, quarto=None):
         template = package / "template"
         template.mkdir()
         template_hashes = {}
-        for filename in ("header.tex", "code.lua"):
+        template_files = ["header.tex", "code.lua"]
+        if doc.markdown_mode:
+            template_files.extend(["markdown.tex", "markdown.lua"])
+        if doc.profile == "obsidian":
+            template_files.extend(["obsidian.tex", "obsidian.lua"])
+        for filename in template_files:
             data = (ROOT / "templates/lecture" / filename).read_bytes()
             (template / filename).write_bytes(data)
             template_hashes[filename] = digest(data)
@@ -281,6 +316,13 @@ def export_document(input_path, output, quarto=None):
         normalized = "---\n" + yaml.safe_dump(doc.metadata, allow_unicode=True) + "---\n" + body
         (package / "normalized.md").write_text(normalized, encoding="utf-8")
         config = render_config(doc.metadata)
+        if doc.markdown_mode:
+            config["format"]["latex"]["number-sections"] = False
+            config["format"]["latex"]["include-in-header"].append("template/markdown.tex")
+            config["filters"].append("template/markdown.lua")
+        if doc.profile == "obsidian":
+            config["format"]["latex"]["include-in-header"].append("template/obsidian.tex")
+            config["filters"].append("template/obsidian.lua")
         (package / "render-config.yml").write_text(
             yaml.safe_dump(config, allow_unicode=True, sort_keys=False), encoding="utf-8"
         )
@@ -349,11 +391,19 @@ def export_document(input_path, output, quarto=None):
         diagnostics = log_diagnostics(log, doc, mapping)
         report["checks"]["compile"] = True
         if diagnostics:
-            report["diagnostics"] = [x.to_dict() for x in diagnostics]
+            report["diagnostics"].extend(x.to_dict() for x in diagnostics)
         shutil.copyfile(build / "main.pdf", output / "lecture.pdf")
         manifest = {
             "note2lecture": __version__,
-            "input_protocol": "N0.1",
+            "input_protocol": {
+                "strict": "N0.1",
+                "markdown": "N2-markdown.1",
+                "obsidian": "N2-obsidian.1",
+            }[doc.profile],
+            "profile": doc.profile,
+            "adaptations": doc.adaptations,
+            "internal_links": doc.internal_links,
+            "obsidian": doc.obsidian,
             "model_enabled": False,
             "code_execution": False,
             "input": {"file": doc.path.name, "sha256": doc.sha256},
