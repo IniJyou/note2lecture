@@ -20,7 +20,10 @@ from note2lecture.tools import find_quarto  # noqa: E402
 
 def compact(text):
     # PDF 的布局空白、英文断词与兼容字形不算正文改写；公式另以原文字节核对。
-    return re.sub(r"[\s\u00ad\u200b-]+", "", unicodedata.normalize("NFKC", text))
+    # TeX 字体会把直撇号及 `` / '' 排成弯引号，仅统一这些标点字形。
+    text = unicodedata.normalize("NFKC", text).replace("``", "“").replace("''", "”")
+    text = text.translate(str.maketrans({"‘": "'", "’": "'", "“": '"', "”": '"'}))
+    return re.sub(r"[\s\u00ad\u200b-]+", "", text)
 
 
 def verify(input_path, output, review, profile="markdown"):

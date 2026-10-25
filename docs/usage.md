@@ -92,12 +92,15 @@ output/my-first-lecture/
 
 源包还保留生成用的 `main.qmd` 和最小 `_quarto.yml`。重新编译 `main.tex` 不依赖它们、原笔记、原资源目录、Quarto、Python 或模型；只需预先准备的 XeLaTeX、宏包与字体。代码采用 `VerbatimInput` 排版，原始代码单独可编辑，TeX 结束记号也作为字面量显示。
 
-在源包目录运行两次：
+首次在全新目录编译，或正文变化影响目录、分页时，建议在源包目录运行三轮：
 
 ```powershell
 xelatex -no-shell-escape -halt-on-error -interaction=nonstopmode main.tex
 xelatex -no-shell-escape -halt-on-error -interaction=nonstopmode main.tex
+xelatex -no-shell-escape -halt-on-error -interaction=nonstopmode main.tex
 ```
+
+检查 `main.log`，若仍提示 `Rerun` 则继续编译，直到目录和引用收敛。验收脚本会等待 `.aux`、`.toc`、`.out` 稳定且无重编译提示，最多四轮；不能只凭两轮退出码判定目录页码正确。
 
 CLI 输出 JSON；检查或编译成功退出 0，有错误退出 2。`export` 即使编译成功，也保留 `partial` 和未完成的内容/页面检查状态，不自动宣称完整验收；存在编译、资源、缺字、未定义引用或溢出错误时为 `failed`。固定样例的实际工程验收另见 [N1 验收记录](n1-validation.md)，不把它泛化为任意输入都已检查。
 
