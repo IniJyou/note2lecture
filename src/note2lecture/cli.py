@@ -19,6 +19,12 @@ def main(argv=None):
         part = sub.add_parser(command, help="检查输入" if command == "check" else "导出讲义")
         part.add_argument("input", type=Path)
         part.add_argument("--quarto", help="Quarto 可执行文件路径")
+        part.add_argument(
+            "--profile",
+            choices=("strict", "markdown", "obsidian"),
+            default="strict",
+            help="strict：N0.1；markdown：普通 Markdown；obsidian：样例覆盖的 Obsidian 扩展",
+        )
         if command == "export":
             part.add_argument("--output", "-o", required=True, type=Path, help="全新的独立输出目录")
     args = parser.parse_args(argv)
@@ -33,7 +39,7 @@ def main(argv=None):
                 "code_execution": False,
             }
         elif args.command == "check":
-            doc = read_document(args.input, find_quarto(args.quarto))
+            doc = read_document(args.input, find_quarto(args.quarto), args.profile)
             result = {
                 "status": "checked",
                 "file": doc.path.name,
@@ -42,9 +48,13 @@ def main(argv=None):
                 "resources": doc.resources,
                 "code_blocks": len(doc.code),
                 "math_blocks": len(doc.math),
+                "profile": doc.profile,
+                "adaptations": doc.adaptations,
+                "obsidian": doc.obsidian,
+                "diagnostics": [x.to_dict() for x in doc.warnings],
             }
         else:
-            result = export_document(args.input, args.output, args.quarto)
+            result = export_document(args.input, args.output, args.quarto, args.profile)
     except NoteError as exc:
         result = {"status": "failed", "diagnostics": [exc.diagnostic.to_dict()]}
     except OSError:
