@@ -391,13 +391,15 @@ def math_width_diagnostic(log, doc):
 SOURCE_README = """# 可编辑 LaTeX 源包
 
 入口是 main.tex。图片位于 assets/，代码原文位于 code/（若有），样式位于 template/。
-编辑正文或代码后，在本目录用已经准备好依赖的 XeLaTeX 编译两次：
+在全新目录首次编译，或修改正文导致目录、分页变化时，建议运行三轮 XeLaTeX：
 
 ```powershell
 xelatex -no-shell-escape -halt-on-error -interaction=nonstopmode main.tex
 xelatex -no-shell-escape -halt-on-error -interaction=nonstopmode main.tex
+xelatex -no-shell-escape -halt-on-error -interaction=nonstopmode main.tex
 ```
 
+检查 main.log；若仍提示 Rerun，应继续编译至目录页码和引用收敛。
 这里不调用 Quarto、Python、模型或原笔记目录，也不需要下载。
 请保留所有资源和样式。字体采用 TeX Live 中的 Fandol 宋/黑/仿宋与 Latin Modern；
 所需宏包包括 ctex、unicode-math、amsmath、amsthm、graphicx、geometry、longtable、

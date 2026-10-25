@@ -106,7 +106,8 @@ def recompile(package, target):
     if target.exists():
         raise RuntimeError("重编译目录已存在，拒绝覆盖")
     shutil.copytree(package, target)
-    for _ in range(2):
+    previous = None
+    for _ in range(4):
         checked(
             [
                 "xelatex",
@@ -118,6 +119,18 @@ def recompile(package, target):
             ],
             cwd=target,
         )
+        # 新目录的目录页数可能改变正文页码；等待辅助文件稳定，不能只算编译次数。
+        current = tuple(
+            (target / ("main" + suffix)).read_bytes()
+            if (target / ("main" + suffix)).exists() else None
+            for suffix in (".aux", ".toc", ".out")
+        )
+        log = (target / "main.log").read_text(encoding="utf-8", errors="replace")
+        if current == previous and not re.search(r"Rerun to get|Label\(s\) may have changed", log):
+            break
+        previous = current
+    else:
+        raise AssertionError("源包重编译四轮后目录与引用仍未收敛。")
     assert not re.search(
         r"Missing character:|Overfull \\[hv]box|undefined references",
         (target / "main.log").read_text(encoding="utf-8", errors="replace"),
