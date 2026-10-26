@@ -2,8 +2,10 @@
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
+from .batch import export_batch
 from .diagnostics import Diagnostic, NoteError
 from .document import read_document
 from .exporter import dependencies, export_document
@@ -15,9 +17,10 @@ def main(argv=None):
     sub = parser.add_subparsers(dest="command", required=True)
     doctor = sub.add_parser("doctor", help="只读检查已有工具、宏包与字体")
     doctor.add_argument("--quarto", help="Quarto 可执行文件路径")
-    for command in ("check", "export"):
-        part = sub.add_parser(command, help="检查输入" if command == "check" else "导出讲义")
-        part.add_argument("input", type=Path)
+    for command in ("check", "export", "batch"):
+        help_text = {"check": "检查输入", "export": "导出讲义", "batch": "批量导出明确选定的笔记"}
+        part = sub.add_parser(command, help=help_text[command])
+        part.add_argument("input", type=Path, **({"nargs": "+"} if command == "batch" else {}))
         part.add_argument("--quarto", help="Quarto 可执行文件路径")
         part.add_argument(
             "--profile",
@@ -25,7 +28,7 @@ def main(argv=None):
             default="strict",
             help="strict：N0.1；markdown：普通 Markdown；obsidian：样例覆盖的 Obsidian 扩展",
         )
-        if command == "export":
+        if command in {"export", "batch"}:
             part.add_argument("--output", "-o", required=True, type=Path, help="全新的独立输出目录")
     args = parser.parse_args(argv)
     try:
@@ -53,6 +56,13 @@ def main(argv=None):
                 "obsidian": doc.obsidian,
                 "diagnostics": [x.to_dict() for x in doc.warnings],
             }
+        elif args.command == "batch":
+            result = export_batch(
+                args.input, args.output, args.quarto, args.profile,
+                progress=lambda index, total, name: print(
+                    f"[{index}/{total}] 正在处理 {name}", file=sys.stderr, flush=True
+                ),
+            )
         else:
             result = export_document(args.input, args.output, args.quarto, args.profile)
     except NoteError as exc:
@@ -62,11 +72,15 @@ def main(argv=None):
             "status": "failed",
             "diagnostics": [
                 Diagnostic(
-                    "RESOURCE_MISSING",
-                    "无法读取指定输入文件。",
-                    Path(getattr(args, "input", "<input>")).name,
+                    "BATCH_IO_FAILED" if args.command == "batch" else "RESOURCE_MISSING",
+                    "无法读写批次输出，请检查路径和权限。" if args.command == "batch"
+                    else "无法读取指定输入文件。",
+                    "<batch>" if args.command == "batch"
+                    else Path(getattr(args, "input", "<input>")).name,
                 ).to_dict()
             ],
         }
     print(json.dumps(result, ensure_ascii=False, indent=2))
+    if result["status"] == "interrupted":
+        return 130
     return 2 if result["status"] == "failed" else 0

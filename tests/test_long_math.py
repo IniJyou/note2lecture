@@ -96,6 +96,16 @@ def test_hard_break_and_common_math_commands(tmp_path, quarto):
     assert any(n["t"] == "LineBreak" for n in nodes(doc.ast["blocks"]))
 
 
+def test_common_math_aliases_survive_backend_exactly(tmp_path, quarto):
+    formula = r"a\lt b\gt 0,\quad A^\dagger\xrightarrow{f}B,\quad\arg z,\bigcup_i U_i,\checkmark"
+    doc = read(tmp_path, quarto, "$$\n" + formula + "\n$$")
+    tex = restore_display_math(
+        pandoc(quarto, json.dumps(prepare_ast(doc, tmp_path)), "json", "latex"), doc
+    )
+    assert doc.math[0]["text"] == "\n" + formula + "\n"
+    assert formula in tex
+
+
 def test_manual_tags_remain_outside_measuring_box(tmp_path, quarto):
     doc = read(tmp_path, quarto, "$$\nx+y=z \\tag{1}\n$$\n\n$$\nu=v \\tag{1}\n$$")
     ast = prepare_ast(doc, tmp_path)

@@ -32,6 +32,47 @@ def test_title_anchors_and_numbered_headings(tmp_path, quarto):
     assert doc.path.read_text(encoding="utf-8") == text
 
 
+@pytest.mark.parametrize("profile", ["markdown", "obsidian"])
+def test_indented_atx_headings_keep_source_locations(tmp_path, quarto, profile):
+    path = tmp_path / "note.md"
+    text = ("# 原创标题\n\n## 原创章节\n\n- 条目\n\n  ### 原创子节\n\n"
+            "  正文。\n\n  ```python\n  raise RuntimeError('never run')\n  ```\n\n"
+            "另一个段落。\n\n```text\n  ## 代码中的字面标题\n```\n")
+    path.write_text(text, encoding="utf-8")
+    doc = read_document(path, quarto, profile)
+    headers = [x for x in nodes(doc.ast["blocks"]) if x["t"] == "Header"]
+    assert doc.metadata["title"] == "原创标题"
+    assert [x["c"][0] for x in headers] == [1, 2]
+    assert [plain(x["c"][2]) for x in headers] == ["原创章节", "原创子节"]
+    label = doc.labels[headers[1]["c"][1][0]]
+    assert (label["line"], label["column"]) == (7, 3)
+    assert doc.code == ["raise RuntimeError('never run')", "  ## 代码中的字面标题"]
+    assert path.read_text(encoding="utf-8") == text
+
+
+@pytest.mark.parametrize("spaces", [1, 2, 3])
+def test_indented_literal_hash_text_is_not_promoted(tmp_path, quarto, spaces):
+    text = "# 笔记\n\n## 章节\n\n" + " " * spaces + "## 普通缩进文本\n\n正文。\n"
+    doc = read(tmp_path, quarto, text)
+    headers = [x for x in nodes(doc.ast["blocks"]) if x["t"] == "Header"]
+    assert len(headers) == 1
+    assert "普通缩进文本" in plain(doc.ast["blocks"])
+
+
+def test_list_can_compose_supported_blocks_and_preserve_empty_item(tmp_path, quarto):
+    Image.new("RGB", (24, 18), "white").save(tmp_path / "original.png")
+    text = ("# 原创笔记\n\n## 章节\n\n-\n- 原创条目。\n\n"
+            "  > 原创引用与 $x$。\n\n  ![原创图](original.png)\n\n"
+            "  | 变量 | 解释 |\n  |---|---|\n  | n | 样本数 |\n\n  条目结尾。\n")
+    doc = read(tmp_path, quarto, text)
+    found = list(nodes(doc.ast["blocks"]))
+    listing = next(x for x in found if x["t"] == "BulletList")
+    assert listing["c"][0] == []
+    assert {"Table", "Figure", "BlockQuote"} <= {x["t"] for x in listing["c"][1]}
+    assert len(doc.resources) == len(doc.math) == 1
+    assert doc.path.read_text(encoding="utf-8") == text
+
+
 def test_local_documents_remain_text_and_are_never_opened(tmp_path, quarto):
     doc = read(tmp_path, quarto, "# 笔记\n\n[参考](../private/missing.md)\n")
     assert not doc.resources
