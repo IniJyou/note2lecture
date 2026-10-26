@@ -6,6 +6,8 @@
 \tl_new:N \l__ntwol_original_tl
 \tl_new:N \l__ntwol_wrapped_tl
 \tl_new:N \l__ntwol_verified_tl
+\seq_new:N \l__ntwol_environment_seq
+\tl_new:N \l__ntwol_environment_action_tl
 \int_new:N \l__ntwol_delimiter_int
 \int_new:N \l__ntwol_argument_int
 \int_new:N \l__ntwol_breaks_int
@@ -65,8 +67,27 @@
 \cs_new_protected:Npn \__ntwol_group:n #1
   {
     \tl_put_right:Nn \l__ntwol_wrapped_tl { {#1} }
-    \int_compare:nNnT { \l__ntwol_argument_int } > { 0 }
-      { \int_decr:N \l__ntwol_argument_int }
+    \tl_if_empty:NTF \l__ntwol_environment_action_tl
+      {
+        \int_compare:nNnT { \l__ntwol_argument_int } > { 0 }
+          { \int_decr:N \l__ntwol_argument_int }
+      }
+      {
+        % 整个矩阵是不可拆分的数学原子；仅核对环境配对，不检查内部关系符或换行。
+        \clist_if_in:nnF {matrix,pmatrix,bmatrix,Bmatrix,vmatrix,Vmatrix,smallmatrix} {#1}
+          { \bool_set_false:N \l__ntwol_safe_bool }
+        \tl_if_eq:NnTF \l__ntwol_environment_action_tl {begin}
+          { \seq_put_right:Nn \l__ntwol_environment_seq {#1} }
+          {
+            \seq_if_empty:NTF \l__ntwol_environment_seq
+              { \bool_set_false:N \l__ntwol_safe_bool }
+              {
+                \seq_pop_right:NN \l__ntwol_environment_seq \l_tmpa_tl
+                \tl_if_eq:NnF \l_tmpa_tl {#1} { \bool_set_false:N \l__ntwol_safe_bool }
+              }
+          }
+        \tl_clear:N \l__ntwol_environment_action_tl
+      }
     \bool_set_true:N \l__ntwol_content_bool
     \__ntwol_scan:
   }
@@ -106,8 +127,10 @@
         { iff } { \__ntwol_logical_relation: }
         { implies } { \__ntwol_logical_relation: }
         { le } { \__ntwol_relation: }
+        { lt } { \__ntwol_relation: }
         { leq } { \__ntwol_relation: }
         { ge } { \__ntwol_relation: }
+        { gt } { \__ntwol_relation: }
         { geq } { \__ntwol_relation: }
         { ne } { \__ntwol_relation: }
         { neq } { \__ntwol_relation: }
@@ -155,7 +178,34 @@
     \token_if_eq_charcode:NNT #1 ^ { \int_set:Nn \l__ntwol_argument_int { 1 } }
     \token_if_eq_charcode:NNT #1 _ { \int_set:Nn \l__ntwol_argument_int { 1 } }
   }
+\cs_new_protected:Npn \__ntwol_opaque_token:N #1
+  {
+    \tl_put_right:Nn \l__ntwol_wrapped_tl {#1}
+    \bool_set_true:N \l__ntwol_content_bool
+    \__ntwol_scan:
+  }
 \cs_new_protected:Npn \__ntwol_token:N #1
+  {
+    \tl_if_empty:NF \l__ntwol_environment_action_tl
+      { \bool_set_false:N \l__ntwol_safe_bool }
+    \token_if_eq_meaning:NNTF #1 \begin
+      {
+        \tl_set:Nn \l__ntwol_environment_action_tl {begin}
+        \__ntwol_opaque_token:N #1
+      }
+      {
+        \token_if_eq_meaning:NNTF #1 \end
+          {
+            \tl_set:Nn \l__ntwol_environment_action_tl {end}
+            \__ntwol_opaque_token:N #1
+          }
+          {
+            \seq_if_empty:NTF \l__ntwol_environment_seq
+              { \__ntwol_outer_token:N #1 } { \__ntwol_opaque_token:N #1 }
+          }
+      }
+  }
+\cs_new_protected:Npn \__ntwol_outer_token:N #1
   {
     % 只接受后接上下标的求值竖线；成对裸竖线的边界有歧义，不猜测。
     \bool_if:NT \l__ntwol_evaluation_bar_bool
@@ -187,6 +237,8 @@
   {
     \tl_set:Nn \l__ntwol_original_tl {#1}
     \tl_clear:N \l__ntwol_wrapped_tl
+    \seq_clear:N \l__ntwol_environment_seq
+    \tl_clear:N \l__ntwol_environment_action_tl
     \int_zero:N \l__ntwol_delimiter_int
     \int_zero:N \l__ntwol_argument_int
     \int_zero:N \l__ntwol_breaks_int
@@ -196,6 +248,8 @@
     \bool_set_false:N \l__ntwol_content_bool
     \bool_set_false:N \l__ntwol_evaluation_bar_bool
     \__ntwol_scan: #1 \q_stop
+    \seq_if_empty:NF \l__ntwol_environment_seq { \bool_set_false:N \l__ntwol_safe_bool }
+    \tl_if_empty:NF \l__ntwol_environment_action_tl { \bool_set_false:N \l__ntwol_safe_bool }
     \int_compare:nNnF { \l__ntwol_delimiter_int } = { 0 }
       { \bool_set_false:N \l__ntwol_safe_bool }
     \bool_if:NT \l__ntwol_evaluation_bar_bool

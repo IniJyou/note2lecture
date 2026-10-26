@@ -326,6 +326,7 @@ def validate_math(doc, node):
             "longrightarrow", "Longrightarrow", "mid", "odot", "dim", "arcsin", "arccos",
             "arctan", "cot", "boxed", "bigl", "bigr", "Bigl", "Bigr", "uparrow", "downarrow",
             "therefore", "Longleftrightarrow", "square", "tag", "iiint", "oiint",
+            "lt", "gt", "xrightarrow", "dagger", "checkmark", "arg", "bigcup",
         }
         if command[1] not in MATH_COMMANDS | (extra if doc.markdown_mode else set()):
             s.error(
@@ -477,12 +478,15 @@ def validate_ast(doc):
                     s.error("UNSUPPORTED_SYNTAX", "不支持此有序列表编号形式。", plain(value))
             for item in items:
                 if doc.markdown_mode:
-                    if not item or item[0]["t"] not in {"Plain", "Para"} or any(
-                        x["t"] not in {"Plain", "Para", "BulletList", "OrderedList"} for x in item
+                    if any(
+                        x["t"] not in {
+                            "Plain", "Para", "BulletList", "OrderedList", "Header", "CodeBlock",
+                            "Figure", "Table", "BlockQuote",
+                        } for x in item
                     ):
                         s.error(
                             "UNSUPPORTED_SYNTAX",
-                            "列表内仅支持段落、公式与最多四层列表。",
+                            "列表内容超出已支持的段落、公式、标题、代码、图表和单层引用范围。",
                             plain(value),
                         )
                     continue

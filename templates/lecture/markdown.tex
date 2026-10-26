@@ -3,7 +3,12 @@
 \setcounter{secnumdepth}{-1}
 % 使用已选定的 Fandol 正文字体排数学环境中的中文，不改写公式正文。
 \xeCJKsetup{CJKmath=true}
-% Latin Modern 正文字体不含这三个字符；使用现有字体显示同一 Unicode 字形。
+% MathJax 常用别名在此使用标准关系符实现，源包仍保留原始宏写法。
+\providecommand{\lt}{<}
+\providecommand{\gt}{>}
+% 星号在代码字体中缺字，交由已有 CJK 正文/等宽字体显示原字符；不改代码字节。
+\xeCJKDeclareCharClass{CJK}{"2605}
+% Latin Modern 正文字体不含这些字符；使用现有字体显示同一 Unicode 字形。
 \newfontfamily\NtwoLCircleFont[BoldFont=FandolSong-Bold.otf]{FandolSong-Regular.otf}
 \newfontfamily\NtwoLProofFont{latinmodern-math.otf}
 \newcommand{\NtwoLTextSymbol}[1]{%

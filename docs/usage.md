@@ -70,6 +70,16 @@ New-Item -ItemType Junction -Path .cache\quarto -Target 'D:\Tools\Quarto'
 
 跨笔记双链仅检查目录内明确目标是否存在，保留名称和路径、发出 warning，不读或合并正文；同篇标题双链转换为 PDF 跳转。无图题的图片嵌入使用文件名作图题。提示框保留原题头、正文和公式，采用无框样式，不转换为数学环境。
 
+### 选定文件批处理
+
+```powershell
+.\.venv\Scripts\python.exe note2lecture.py batch examples/01-mean.md examples/02-projection.md examples/03-online-mean.md -o output/sample-batch-01
+```
+
+`batch` 复用单篇导出，默认 `strict`，也支持共同的 `--profile markdown` / `obsidian` 与 `--quarto`。只接收明确指定的文件；每篇写入编号目录，支持不同目录的同名文件。一篇失败后继续处理其余项，批次根目录保存 `batch-summary.json`；根目录必须不存在。路径清单、状态和汇总字段见 [batch-export.md](batch-export.md)。
+
+全部转换完成且无失败项时退出 0，状态仍为 `partial`；任意一项失败退出 2，汇总给出各自结果和产物位置。不要仅根据批次退出码判断每篇是否已完成内容与页面验收。
+
 ## 4. 输出与状态
 
 ```text
@@ -118,6 +128,7 @@ Quarto 仅生成 LaTeX，再由程序直接运行 XeLaTeX 至少两轮、最多�
 .\.venv\Scripts\python.exe scripts/verify_n1.py output/n1-new-check
 .\.venv\Scripts\python.exe scripts/verify_markdown.py '.\private\note.md' output/real-note-new output/real-note-review-new
 .\.venv\Scripts\python.exe scripts/verify_markdown.py examples/04-obsidian.md output/obsidian-new output/obsidian-review-new --profile obsidian
+.\.venv\Scripts\python.exe scripts/verify_batch.py output/batch-review-new
 ```
 
 测试的 `--basetemp` 和端到端验收目录应使用新的名称，保留已有诊断产物。端到端脚本使用 `pdfinfo`、`pdftotext` 核对页数与正文；它们属于开发验收工具，不是导出运行依赖。PDF 仍需用 Poppler 渲染并逐页查看，文本提取不能证明版面正确。
@@ -126,4 +137,4 @@ Quarto 仅生成 LaTeX，再由程序直接运行 XeLaTeX 至少两轮、最多�
 
 在 Codex Windows 沙箱内，Quarto 缓存数据库会触发权限限制，因此本轮实际渲染在沙箱外运行；这不等于用户普通终端也需要管理员权限。自动审批如拒绝操作应明确报告，不通过修改系统或其他项目环境绕过。
 
-当前边界仍是单篇明确语法的 Markdown。N2 普通 Markdown 的结果见 [验收记录](n2-validation.md)，Obsidian 样例范围见 [支持规则](obsidian-fixture.md)；折叠、嵌套、整篇笔记嵌入等仍给出诊断。模型建议留 N3，电子书 PDF 反向提取按规划第 7.1 节另行安排。首套模板的字体、正文密度和数学环境风格已由用户确认；新文档仍需逐篇检查。
+当前支持明确语法的单篇 Markdown 与明确选定文件的批量导出，每篇独立产物。N2 普通 Markdown 的结果见 [验收记录](n2-validation.md)，Obsidian 样例范围见 [支持规则](obsidian-fixture.md)；折叠、嵌套、整篇笔记嵌入等仍给出诊断。N3 模型建议暂跳过，电子书 PDF 反向提取按规划第 7.1 节另行安排。首套模板的字体、正文密度和数学环境风格已由用户确认；新文档仍需逐篇检查。

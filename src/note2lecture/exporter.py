@@ -89,7 +89,7 @@ def bookmark_text(text):
     return "".join(escapes.get(char, char) for char in " ".join(text.split()))
 
 
-TEXT_SYMBOLS = {"①", "②", "∎"}
+TEXT_SYMBOLS = {"①", "②", "③", "∎"}
 
 
 def heading_bookmark(heading):
@@ -167,7 +167,7 @@ def prepare_ast(doc, package):
             c[1] = token
         elif doc.markdown_mode and kind == "Str" and TEXT_SYMBOLS.intersection(c):
             # 只切换已知缺字的字体，保留原 Unicode 字符；代码和数学不走此路径。
-            pieces = re.split("([①②∎])", c)
+            pieces = re.split("([①②③∎])", c)
             item.update(t="Span", c=[["", [], []], [
                 {"t": "RawInline", "c": ["latex", r"\NtwoLTextSymbol{" + p + "}"]}
                 if p in TEXT_SYMBOLS else {"t": "Str", "c": p}

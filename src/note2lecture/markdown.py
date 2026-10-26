@@ -9,6 +9,7 @@ from .math_input import parse_ast
 
 ANCHOR = re.compile(r'^<a\s+id="([A-Za-z][A-Za-z0-9_-]*)"\s*></a>\s*$')
 HEADING = re.compile(r"(?m)^(#{1,6})[ \t]+(.+)$")
+INDENTED_HEADING = re.compile(r"(?m)^ {1,3}(#{1,6})[ \t]+(.+)$")
 
 
 def markdown_input(source, fallback_title):
@@ -79,8 +80,16 @@ def adapt_markdown(doc, quarto):
     source_headers = [
         x
         for x in source_headers
-        if doc.visible[body_offset + x.start() : body_offset + x.start() + 1] == "#"
+        if doc.visible[body_offset + x.start(1) : body_offset + x.start(1) + 1] == "#"
     ]
+    if len(headers) > len(source_headers):
+        # Pandoc 可把列表续行中带缩进的 ATX 解析为标题；只在确有额外标题时匹配。
+        # 普通段落里的缩进 # 文本不强行升级；代码/数学中的示例仍由 visible 屏蔽。
+        source_headers.extend(
+            x for x in INDENTED_HEADING.finditer(doc.body)
+            if doc.visible[body_offset + x.start(1) : body_offset + x.start(1) + 1] == "#"
+        )
+        source_headers.sort(key=lambda x: x.start())
     if len(source_headers) != len(headers):
         doc.source.error("UNSUPPORTED_SYNTAX", "Markdown 模式仅适配 # 形式的标题。")
     shift = headers[0]["c"][0] - 1 if headers else 0
@@ -98,7 +107,7 @@ def adapt_markdown(doc, quarto):
 
     for index, (node, source_header) in enumerate(zip(headers, source_headers), 1):
         c = node["c"]
-        position = body_offset + source_header.start()
+        position = body_offset + source_header.start(1)
         old = c[1][0]
         if not re.search(r"\{#[^}]+\}", source_header[0]):
             c[1][0] = generated("sec", index, position)
