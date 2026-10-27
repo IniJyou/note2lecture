@@ -17,6 +17,8 @@ from .tools import pandoc
 
 LABEL = re.compile(r"^(sec|eq|fig|tbl|def|thm|lem|exm)-[a-z0-9]+(?:-[a-z0-9]+)*$")
 ENV = {"def", "thm", "lem", "exm"}
+# 语言标签只是文档说明，不透传执行配置、属性或任意指令。
+CODE_LANGUAGE = re.compile(r"[A-Za-z][A-Za-z0-9_+#.-]*")
 # 首版是明确的数学命令子集；既不猜写未知宏，也不允许文件/执行命令混入数学。
 MATH_COMMANDS = set(
     """
@@ -253,10 +255,18 @@ def lexical_scan(doc, body_offset):
             else:
                 hide(offset, offset + len(line))
         elif stripped.startswith("```"):
-            if stripped not in {"```", "```python", "```text"}:
+            language = stripped[3:].strip() if doc.markdown_mode else stripped[3:]
+            accepted = (
+                not language or CODE_LANGUAGE.fullmatch(language)
+                if doc.markdown_mode else stripped in {"```", "```python", "```text"}
+            )
+            if not accepted:
                 s.error(
                     "UNSUPPORTED_SYNTAX",
-                    "仅接受普通 python/text 代码围栏，不执行代码。",
+                    ("代码围栏仅接受一个普通语言标签（如 json、powershell）；"
+                     "不接受执行单元或额外属性，代码只作文本排版。"
+                     if doc.markdown_mode else
+                     "strict 模式仅接受普通 python/text 代码围栏，不执行代码。"),
                     offset=offset,
                     block="code",
                 )
@@ -626,7 +636,11 @@ def validate_ast(doc):
                 s.error("UNSUPPORTED_SYNTAX", "首版仅支持普通单层引用段。", ">")
         elif kind == "CodeBlock":
             ident, classes, attrs = c[0]
-            if ident or attrs or classes not in ([], ["python"], ["text"]):
+            accepted = (
+                not classes or (len(classes) == 1 and CODE_LANGUAGE.fullmatch(classes[0]))
+                if doc.markdown_mode else classes in ([], ["python"], ["text"])
+            )
+            if ident or attrs or not accepted:
                 s.error("UNSUPPORTED_SYNTAX", "不支持的代码块属性。", c[1], block="code")
             doc.code.append(c[1])
             return

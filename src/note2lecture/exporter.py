@@ -144,6 +144,10 @@ def prepare_ast(doc, package):
             scale = min(25.4 / 96, 160 / width, 135 / height)
             c[0][2].append(["width", f"{width * scale:.3f}mm"])
         elif kind == "CodeBlock":
+            # 普通语言标签统一降为字面代码；mermaid/ojs 等也不能触发后端专用处理。
+            # 原 AST 保留源标签，工作副本只带受控外置代码路径。
+            if doc.markdown_mode:
+                c[0][1] = []
             data = c[1].encode("utf-8")
             target = "code/" + digest(data) + ".txt"
             (package / "code").mkdir(exist_ok=True)

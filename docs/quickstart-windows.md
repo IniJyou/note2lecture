@@ -2,6 +2,8 @@
 
 这份指南从准备工具开始，完成一次原创样例转换，再说明怎样处理自己的笔记。基础转换在本地运行，不需要 GPU 或模型。当前提供 PDF 与可编辑 LaTeX 源包、单篇与指定文件批处理。
 
+已有基础转换环境时，可按 [桌面界面指南](desktop-gui.md)安装可选界面依赖，通过窗口完成同样的检查和导出。
+
 ## 1. 取得项目与准备工具
 
 从 [GitHub 仓库](https://github.com/IniJyou/note2lecture) 下载源码 ZIP 并解压，或使用 Git 获取源码。在含有 `note2lecture.py` 的项目目录打开 PowerShell。后续命令都在这里运行；不需要把项目安装成 Python 包。

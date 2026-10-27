@@ -2,6 +2,8 @@
 
 本版从项目目录运行，提供 `doctor`、`check`、`export`、`batch` 四个命令；不要求安装项目为 Python 包。基础导出不加载模型，也不运行笔记代码。首次配置从 [Windows 指南](quickstart-windows.md) 开始；输入规则按所选 profile 查看。
 
+Windows 可选使用 [桌面界面](desktop-gui.md)：运行 `note2lecture_gui.py`，通过窗口选择文件、检查、导出及查看诊断。界面依赖独立列在 `requirements-gui.txt`，不改变下面的命令行用法。
+
 ## 1. 环境
 
 项目使用自身 `.venv`，不借用 MiniGPT-CN 或 CS336 环境。下载、安装和 Git 写操作仍由用户执行，除非另行明确授权。
