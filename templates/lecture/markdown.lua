@@ -1,4 +1,16 @@
 -- 行内断点是受控 LaTeX，不能让宏的文本长度影响表格的列宽估计。
+-- 文章类没有原生六级标题；深层标题显式生成独立行及书签，避免变成普通段落。
+function Header(header)
+  if header.level >= 4 then
+    local title = pandoc.write(pandoc.Pandoc({pandoc.Plain(header.content)}), "latex")
+    local bookmark = header.attributes["n2l-bookmark-tex"]
+    if not bookmark then error("Missing protected deep heading bookmark") end
+    return pandoc.RawBlock("latex", "\\NtwoLDeepHeading{" .. header.level .. "}{"
+      .. header.identifier .. "}{" .. title .. "}{" .. bookmark .. "}"
+      .. "\\label{" .. header.identifier .. "}")
+  end
+end
+
 -- 基础表格等宽分配；不猜测内容重要性，不缩小表格正文。
 function Table(tbl)
   local width = 1 / #tbl.colspecs
@@ -19,6 +31,8 @@ local function keep_list_titles(list)
           title = true
         elseif inline.t == "Str" and (inline.text == ":" or inline.text == "：") then
           -- 题头的冒号也可能写在粗体外面，仍须与后面的公式连排。
+        elseif inline.t == "RawInline" and inline.text:match("^\\NtwoLListLabel{") then
+          -- 源编号标记不是正文，仍按粗体题头处理。
         elseif inline.t ~= "Space" and inline.t ~= "SoftBreak" then
           only_title = false
         end
@@ -32,7 +46,23 @@ local function keep_list_titles(list)
 end
 
 BulletList = keep_list_titles
-OrderedList = keep_list_titles
+function OrderedList(list)
+  list = keep_list_titles(list)
+  local first = list.content[1] and list.content[1][1]
+  local marker = first and (first.t == "Plain" or first.t == "Para") and first.content[1]
+  if not marker or marker.t ~= "RawInline" or not marker.text:match("^\\NtwoLListLabel{") then
+    return list
+  end
+  local output = {"\\begin{enumerate}"}
+  for _, item in ipairs(list.content) do
+    local label = item[1].content:remove(1).text:match("^\\NtwoLListLabel{([A-Za-z0-9().]+)}$")
+    if not label then error("Missing protected source list number") end
+    output[#output + 1] = "\\item[" .. label .. "] "
+      .. pandoc.write(pandoc.Pandoc(item), "latex")
+  end
+  output[#output + 1] = "\\end{enumerate}"
+  return pandoc.RawBlock("latex", table.concat(output, "\n"))
+end
 
 local keep_next = "\\nopagebreak[4]"
 local function is_display(inline)

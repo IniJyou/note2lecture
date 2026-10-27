@@ -15,6 +15,7 @@ from verify_n1 import checked, labels_in_aux, prose_tokens, recompile  # noqa: E
 from note2lecture.document import digest, nodes, read_document  # noqa: E402
 from note2lecture.exporter import write_json  # noqa: E402
 from note2lecture.math_input import parse_ast  # noqa: E402
+from note2lecture.text_glyphs import monochrome_text  # noqa: E402
 from note2lecture.tools import find_quarto  # noqa: E402
 
 
@@ -23,15 +24,15 @@ def compact(text):
     # TeX 字体会把直撇号及 `` / '' 排成弯引号，仅统一这些标点字形。
     text = unicodedata.normalize("NFKC", text).replace("``", "“").replace("''", "”")
     text = text.translate(str.maketrans({"‘": "'", "’": "'", "“": '"', "”": '"'}))
-    return re.sub(r"[\s\u00ad\u200b-]+", "", text)
+    return re.sub(r"[\s\u00ad\u200b-]+", "", monochrome_text(text))
 
 
-def verify(input_path, output, review, profile="markdown"):
+def verify(input_path, output, review, profile="markdown", list_numbering="auto"):
     if review.exists():
         raise RuntimeError("检查目录已存在，请换新目录。")
     review.mkdir(parents=True)
     quarto = find_quarto()
-    doc = read_document(input_path, quarto, profile)
+    doc = read_document(input_path, quarto, profile, list_numbering=list_numbering)
     package = output / "lecture-source"
     manifest = json.loads((package / "manifest.json").read_text(encoding="utf-8"))
     tex = (package / "main.tex").read_text(encoding="utf-8")
@@ -141,5 +142,7 @@ if __name__ == "__main__":
     parser.add_argument("output", type=Path)
     parser.add_argument("review", type=Path, help="全新的独立检查目录")
     parser.add_argument("--profile", choices=("markdown", "obsidian"), default="markdown")
+    parser.add_argument("--list-numbering", choices=("auto", "preserve"), default="auto")
     args = parser.parse_args()
-    verify(args.input.absolute(), args.output.absolute(), args.review.absolute(), args.profile)
+    verify(args.input.absolute(), args.output.absolute(), args.review.absolute(), args.profile,
+           args.list_numbering)

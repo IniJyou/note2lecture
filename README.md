@@ -1,42 +1,65 @@
 # Note2Lecture
 
-将明确选定的 UTF-8 Markdown 及其直接引用的本地资源，转换为中文讲义 PDF 和可编辑、可重编译的 LaTeX 源包，支持单篇与批量导出。
+把明确选定的 Markdown 与本地图片转换为中文讲义 **PDF＋可编辑 LaTeX 源包**，支持单篇与批量导出。面向 Windows 本地命令行使用，基础转换不需要 GPU 或模型。
 
-当前交付：**N1、N2 当前约定范围已验收；N4 首项批量导出已完成工程验收与真实笔记试用**。提供普通 Markdown 与基础 Obsidian 语法适配、单篇与批量命令入口、输入与资源诊断、PDF 及可独立重编译的 LaTeX 源包。首套采用 Fandol＋Latin Modern、11 pt、1.4 行距和教材式无框数学环境，提示框样式先沿用。产品规划仍为 v0.2；默认 strict 使用 N0.1，markdown 与 obsidian 模式须显式选择，不承诺任意 Obsidian 语法。
+[Windows 首次使用](docs/quickstart-windows.md) · [公开效果对照](docs/demo.md) · [命令与输出](docs/usage.md) · [批处理](docs/batch-export.md)
 
-2026-10-25 后续真实笔记回归补充了缩进公式、多段列表、反斜线数学分隔符和目录占位符适配，并修复列表题头分页；新样本 18 页的内容与页面工程检查完成，阅读反馈待确认。支持边界与实测记录见下方文档。
+## 先看效果
 
-同日长文回归补充了常见数学语法、原文保护、书签与竖版分行，并修复本机工具命令的长输出截断。最终长文 **105 页全部查看**，2,176 处公式、正文、目录与编号核对通过，用户认可阅读效果；源包迁移重编译后，105 页与原 PDF 逐页渲染一致。验收检查补齐 TeX 引号字形映射与目录收敛判断，**158 项测试、Ruff 通过**；首次手动编译建议三轮，并以日志收敛为准。私人原稿和产物仅留本机，模型继续关闭，N3 暂跳过。
+四篇原创样例展示正文与代码、数学环境、公式图表及基础 Obsidian 语法。完整 PDF 和可编辑源包见 [演示页面](docs/demo.md)，所有演示都不使用私人笔记。
 
-2026-10-26 完成 N4 首项批量 PDF / LaTeX 导出：`batch` 按指定顺序逐篇处理，使用编号目录避免同名冲突，单篇失败后继续，并保存逐篇诊断与 `batch-summary.json`。172 项测试、Ruff 通过，原创混合成败批次及两份讲义共 5 页的内容、实际页面和独立源包已验证，等待用户试用反馈。新批次转换完成仍须内容与页面验收；HTML、Word/EPUB 和界面分别安排。用法与状态见 [批处理说明](docs/batch-export.md)，实测见 [N4 验收记录](docs/n4-validation.md)。
+![投影讲义预览：定义、公式与引用](docs/demo/02-projection-preview.png)
 
-同日按用户指定完成五篇真实笔记试用，补齐其涉及的常见数学命令、列表内块结构、符号字体与矩阵连等式竖版分行，修复列表题头及文末短结语分页。最终 **142 页全部查看**，3,233 处数学内容、15 个代码块、3 幅图片与五份独立源包核对通过，原稿摘要不变；**184 项测试、Ruff 通过**。一篇的旧图片引用在独立副本旁补齐，未修改原库或自动搜索资源。私人材料仅存本机，用户已认可本次五份讲义的阅读效果，具体支持边界见普通 Markdown 适配文档。
+首套“清简讲义 v0.1”：Fandol 中文＋Latin Modern 西文与数学，11 pt、1.4 行距、教材式无框数学环境。
 
-- 当前任务与下一验收点：[docs/current-work.md](docs/current-work.md)
-- 产品范围与阶段：[PROJECT_PLAN.md](PROJECT_PLAN.md)
-- 协作规则：[AGENTS.md](AGENTS.md)
-- 三篇原创样例：[examples/README.md](examples/README.md)
-- 输入语法、资源与诊断：[docs/input-spec.md](docs/input-spec.md)
-- 期望输出与逐篇核对表：[docs/expected-output.md](docs/expected-output.md)
-- 首套中文模板方向：[docs/template-direction.md](docs/template-direction.md)
-- 使用与环境说明：[docs/usage.md](docs/usage.md)
-- 批量 PDF / LaTeX 导出：[docs/batch-export.md](docs/batch-export.md)
-- N1 实测与限制：[docs/n1-validation.md](docs/n1-validation.md)
-- 普通 Markdown 适配：[docs/markdown-profile.md](docs/markdown-profile.md)
-- N2 首轮实测与限制：[docs/n2-validation.md](docs/n2-validation.md)
-- Obsidian 基础扩展与样例检查：[docs/obsidian-fixture.md](docs/obsidian-fixture.md)
+## 跑通第一篇
 
-基础转换关闭模型辅助，不依赖 MiniGPT-CN、Qwen 或 LoRA。用户于 2026-10-25 决定先跳过 N3，2026-10-26 授权 N4 首项批量导出。M5 模型质量未达接纳门槛，模型能力保留为后续可选任务，届时单独验收。
-
-已准备独立 `.venv`、Quarto 和 XeLaTeX 的本地环境可运行：
+先按 [首次使用指南](docs/quickstart-windows.md) 准备 Python、Quarto、XeLaTeX、宏包与字体。在项目目录新建独立环境并安装两个运行依赖后：
 
 ```powershell
 .\.venv\Scripts\python.exe note2lecture.py doctor
 .\.venv\Scripts\python.exe note2lecture.py check examples/01-mean.md
-.\.venv\Scripts\python.exe note2lecture.py export examples/01-mean.md -o output/my-lecture
-.\.venv\Scripts\python.exe note2lecture.py batch examples/01-mean.md examples/02-projection.md examples/03-online-mean.md -o output/my-batch
+.\.venv\Scripts\python.exe note2lecture.py export examples/01-mean.md -o output/my-first-lecture
 ```
 
-输出目录必须尚不存在；依赖准备、Quarto 路径和源包重编译见使用说明。导出不自动下载或安装。程序新导出的结果保持 `partial`，等待内容与页面检查；固定样例已完成的检查单独记录，不能泛化到任意笔记。下载、安装和 Git 写操作仍由用户执行。
+打开 `output/my-first-lecture/lecture.pdf` 阅读，`lecture-source.zip` 保存可编辑完整源包。输出目录必须尚不存在；再次导出请换新目录。
 
-原笔记只读。公开演示使用本项目新写的样例；私人笔记仅按用户指定读取，私人原稿与产物不加入公开仓库。电子书 PDF 反向提取按规划第 7.1 节保留为后续独立功能，不属于基础导出或 N0—N2 的前置条件。
+普通笔记使用 `--profile markdown`，受支持的 Obsidian 扩展使用 `--profile obsidian`，默认 `strict` 对应明确的 N0.1 规范。批处理示例：
+
+```powershell
+.\.venv\Scripts\python.exe note2lecture.py batch examples/01-mean.md examples/02-projection.md examples/03-online-mean.md -o output/my-batch-01
+```
+
+每篇产物分别位于 `001`、`002`、`003`，根目录提供 `batch-summary.json`。一篇失败后继续其余项；输出和状态的完整说明见 [批处理文档](docs/batch-export.md)。
+
+## 当前能力与边界
+
+- 中文正文、标题目录、列表、脚注、代码、基础表格、本地 PNG/JPEG、公式、显式数学环境与编号引用。
+- 普通 Markdown 适配，以及样例覆盖的 Obsidian 双链、图片嵌入和 note/tip/warning 提示框；不同模式的支持规则分别说明。
+- 诊断缺图、标签与引用错误、不支持语法及编译或版面问题。部分超宽公式可在外层关系符处分行，无法安全处理时明确报告。
+- markdown / obsidian 模式支持同行及跨行的 `$$` 公式、段落内同行独立公式和基础 `array` 增广矩阵，保留数学原文及分隔竖线；详细边界见输入规则。
+- 原笔记与资源只读，代码不执行，模型关闭。源包包含重编译所需文本、图片和模板，工具及字体由使用者准备。
+
+新导出的 `partial` 表示仍需内容与页面人工检查；结构与编译成功不等于数学审校或任意文档都能通过。跨笔记链接不自动合并正文，程序不自动搜图或修正失效资源路径。
+
+N1、N2 当前约定范围及 N4 批处理已验收。真实笔记回归包括 105 页长文和五篇共 142 页讲义，用户认可阅读效果；184 项测试与 Ruff 的 N4 基线通过，私人产物仅留本机。N5 本轮整理首次使用、公开演示和复现，结果见 [N5 记录](docs/n5-validation.md)。规划版本仍为 v0.2。
+
+随后补齐常见数学写法、[数学命令](docs/math-commands.md)、六级标题和数字/字母/罗马有序列表；宽公式优先分行再有限缩放，题号可显式保留。最新再支持数学书名、带说明的矩阵变换、标准黑方块与公式内部空行，**360 项测试与 Ruff 通过**；原创两页及源包迁移检查通过，三篇指定笔记共 2,132 处数学盒子预检通过，详见 [矩阵兼容说明](docs/matrix-compat.md)。数学预检不代替私人整篇导出与页面验收；其他引用容器仍有限制。原稿只读，公开演示保持生成时的固定产物；具体范围见 [当前工作](docs/current-work.md)。
+
+其后补齐正文希腊字母和 ✓、⚠、❌、💡 的黑白字形，改善缺字候选定位并明确中间表格列边界。**最新 377 项测试与 Ruff 通过**，独立原创一页样张、内容与源包迁移核对通过；助手完成三篇输入及问题字符零页检查；用户随后确认个人笔记转换结果无误。字体依赖与范围见 [特殊字符说明](docs/text-glyphs.md)。
+
+HTML、Word/EPUB、界面和模型建议留待后续分别验收。电子书 PDF 反向提取按规划第 7.1 节作为独立功能，尚未启动。当前不提供一键安装器，程序不会自动下载或安装依赖。
+
+## 文档入口
+
+| 需要 | 文档 |
+| --- | --- |
+| 第一次配置并导出 | [Windows 首次使用](docs/quickstart-windows.md) |
+| 查看原稿、PDF 与源包 | [公开效果对照](docs/demo.md) |
+| 命令、产物和 LaTeX 重编译 | [使用说明](docs/usage.md) |
+| 一次转换明确选定的文件 | [批处理](docs/batch-export.md) |
+| 输入规则 | [strict / N0.1](docs/input-spec.md)、[Markdown](docs/markdown-profile.md)、[Obsidian](docs/obsidian-fixture.md) |
+| 测试和工程验收 | [开发验证](docs/development.md)、[N5 复现](docs/n5-validation.md)、[N4 记录](docs/n4-validation.md) |
+| 项目安排和协作 | [当前工作](docs/current-work.md)、[规划](PROJECT_PLAN.md)、[AGENTS.md](AGENTS.md) |
+
+公开演示的来源与展示授权见 [原创样例说明](examples/README.md)。下载、安装和 Git 写操作按项目协作约定执行；私人输入和导出产物不自动上传或加入公开仓库。

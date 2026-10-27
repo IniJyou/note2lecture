@@ -45,11 +45,18 @@ def test_wrap_boundaries_preserve_groups_arguments_and_evaluation_bar(tmp_path):
         (r"p\lt q\gt r", r"p\lt q\NtwoLWrapBreak\gt r"),
         (r"p=\overset{!}=q=r", r"p=\overset{!}=q\NtwoLWrapBreak=r"),
         (r"p=\mathbf=q=r", r"p=\mathbf=q\NtwoLWrapBreak=r"),
+        (r"p=q\not=r=s", r"p=q\not=r\NtwoLWrapBreak=s"),
+        (r"p=q\stackrel{!}=r=s", r"p=q\stackrel{!}=r\NtwoLWrapBreak=s"),
+        (r"p=\mathrel=q=r", r"p=\mathrel=q\NtwoLWrapBreak=r"),
+        (r"p=\lfloor q=r\rfloor=s", r"p=\lfloor q=r\rfloor\NtwoLWrapBreak=s"),
+        (r"p=\lceil q=r\rceil=s", r"p=\lceil q=r\rceil\NtwoLWrapBreak=s"),
         (r"p=\begin{bmatrix}q=r&s\\t&u\end{bmatrix}=v",
          r"p=\begin{bmatrix}q=r&s\\t&u\end{bmatrix}\NtwoLWrapBreak=v"),
         (r"p=\begin{pmatrix}\begin{smallmatrix}q&r\end{smallmatrix}&s\end{pmatrix}=t",
          r"p=\begin{pmatrix}\begin{smallmatrix}q&r\end{smallmatrix}&s\end{pmatrix}"
          r"\NtwoLWrapBreak=t"),
+        (r"p=\left(\begin{array}{lc|r}q=r&s&t\\u&v&w\end{array}\right)=z",
+         r"p=\left(\begin{array}{lc|r}q=r&s&t\\u&v&w\end{array}\right)\NtwoLWrapBreak=z"),
     ]
     body = [r"\begin{document}\ExplSyntaxOn\tl_new:N\l_test_expected_tl"]
     for original, expected in pairs:
@@ -123,6 +130,18 @@ def test_code_star_and_third_circle_use_existing_glyphs(tmp_path):
     assert (tmp_path / "literal.txt").read_text(encoding="utf-8") == code
 
 
+def test_augmented_array_chain_keeps_rules_while_wrapping(tmp_path):
+    matrix = (r"\left(\begin{array}{cc|c}a_{k-1}&b_{k-1}&c_{k-1}"
+              r"\\d_{k-1}&e_{k-1}&f_{k-1}\end{array}\right)")
+    formula = "F=" + "=".join([matrix] * 3) + "=G"
+    body = (r"\begin{document}\begin{minipage}{80mm}\NtwoLMathDisplay{"
+            + "f" * 64 + "}{" + formula + r"}\end{minipage}\end{document}")
+    result, log = compile_tex(tmp_path, body)
+    assert result.returncode == 0, log[-3000:]
+    assert "N2LWRAPPED:" in log
+    assert not re.search(r"Missing character|Overfull", log)
+
+
 @pytest.mark.parametrize("inline_tail", [False, True])
 def test_list_title_colon_and_short_math_tail_stay_on_same_page(tmp_path, quarto, inline_tail):
     if not shutil.which("pdftotext"):
@@ -155,7 +174,7 @@ def test_list_title_colon_and_short_math_tail_stay_on_same_page(tmp_path, quarto
 
 
 @pytest.mark.parametrize("formula", [
-    "P(t)=" + "+".join(f"t^{{{i}}}" for i in range(1, 70)),
+    "P(t)=" + "".join(f"t^{{{i}}}" for i in range(1, 70)),
     "P(t)=|" + "+".join(f"t^{{{i}}}" for i in range(1, 70)) + "|=Q(t)",
 ])
 def test_unbreakable_or_ambiguous_wide_math_fails_without_landscape(tmp_path, formula):

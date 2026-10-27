@@ -1,38 +1,37 @@
 # 本地使用与检查
 
-本版从项目目录运行，提供 `doctor`、`check`、`export` 三个命令；不要求安装项目为 Python 包。基础导出不加载模型，也不运行笔记代码。输入范围见 [N0.1 规范](input-spec.md)。
+本版从项目目录运行，提供 `doctor`、`check`、`export`、`batch` 四个命令；不要求安装项目为 Python 包。基础导出不加载模型，也不运行笔记代码。首次配置从 [Windows 指南](quickstart-windows.md) 开始；输入规则按所选 profile 查看。
 
 ## 1. 环境
 
 项目使用自身 `.venv`，不借用 MiniGPT-CN 或 CS336 环境。下载、安装和 Git 写操作仍由用户执行，除非另行明确授权。
 
-本轮实际组合：Python 3.12.4、Quarto 1.10.19（内置 Pandoc 3.10）、XeTeX 0.999996 / TeX Live 2024。转换优先直接调用所选 Quarto 安装内 `bin/tools/` 的 Pandoc，避免本机包装命令转发大 stdout 时随机缺段；安装布局不含该文件时保留 `quarto pandoc` 调用。不使用 PATH 中独立的 Pandoc 3.12.1，版本记录与实际调用保持一致。Python 依赖实测版本保存在 [requirements-dev.txt](../requirements-dev.txt)。新环境准备方式为：
+已验证组合：Python 3.12.4、Quarto 1.10.19（内置 Pandoc 3.10）、XeTeX 0.999996 / TeX Live 2024。转换使用所选 Quarto 随附的 Pandoc，不需要另外安装 Pandoc。导出运行依赖实测版本保存在 [requirements.txt](../requirements.txt)，开发工具另见 [开发验证](development.md)。新环境准备方式为：
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-字体固定为 TeX Live 已有的 Fandol 宋/黑/仿宋与 Latin Modern。本轮没有安装思源字体；这是 N0 允许的首轮已备字体方案，不能当成思源字体样张。字体文件不随源包分发，实际字体摘要保存在每份 `manifest.json`。
+字体使用 TeX Live 提供的 Fandol 宋/黑/仿宋与 Latin Modern。字体文件不随源包分发，实际字体摘要保存在每份 `manifest.json`。
 
-首套“清简讲义 v0.1”已确认：正文约 11 pt、行距参数 1.4，数学环境为粗体题头、正体正文、无框无线。Times New Roman 仅做过独立对照，用户最终选择保留 Latin Modern，不需要为本模板准备 Times 字体。定稿样张与源包在本机 `output/n1-approved/`；新文档仍按下面的状态规则逐篇检查。
+普通模式的正文希腊字母及 ✓、⚠、❌ 使用 FreeSerif；💡 使用 Windows 已有的 Segoe UI Symbol，统一按黑白显示。额外字体在导出时检查，原稿、数学和代码不改写；具体范围与缺字定位见 [特殊字符说明](text-glyphs.md)。
 
-2026-10-25 根据用户最新反馈，超宽普通公式改为在竖版内按明确的外层关系符分行，保持原公式、运算次序与可读字号；不能安全分行或分行后仍超宽则报错。无需额外安装横向页面宏包。正文与正文标题中的 `①`、`②`、`∎` 使用既有 Fandol / Latin Modern Math 补齐原字符。手写或显式标签编号公式的边界见 Markdown 适配规则。
+首套“清简讲义 v0.1”已确认：正文约 11 pt、行距参数 1.4，数学环境为粗体题头、正体正文、无框无线。当前公开样张与源包见 [效果对照](demo.md)；新文档仍按下面的状态规则逐篇检查。
+
+超宽普通公式在竖版内先尝试外层关系符及明确的二元加减号分行，再考虑有限缩放，保留原公式与运算次序；列表内按实际剩余行宽排版。仍无法安全排下则报告位置和尺寸。正文符号、手写或显式标签公式的边界见 [兼容规则](common-compat.md)。
 
 ## 2. Quarto 路径
 
 程序优先使用命令的 `--quarto` 参数，其次为环境变量 `NOTE2LECTURE_QUARTO`、PATH；都没有时检查项目 `.cache/quarto/bin/quarto.exe`。
 
-本机最初安装在 `D:\工具\Quarto`，实测 Quarto 1.10.19 从该路径渲染时出现 Lua 模块路径乱码。交付检查时工具已位于 `D:\Tools\Quarto`，项目 `.cache/quarto` 英文目录联接已更新到这个实际位置；旧联接保留为 `.cache/quarto-original-path`。联接被 Git 忽略，不是仓库依赖，助手没有移动或复制安装。新环境建议使用纯英文的 Quarto 安装路径。
-
-如果需要重建本机入口，由用户执行（仅在目标不存在时）：
+Quarto 应安装在英文路径，并使用自己的实际安装位置；不依赖开发者的目录联接或特定盘符。例如在当前 PowerShell 窗口设置：
 
 ```powershell
-New-Item -ItemType Directory -Path .cache -Force
-New-Item -ItemType Junction -Path .cache\quarto -Target 'D:\Tools\Quarto'
+$env:NOTE2LECTURE_QUARTO = 'C:\Tools\Quarto\bin\quarto.exe'
 ```
 
-不要把 `.cache` 中的联接目录递归复制或清理到安装目录。程序不会自动创建联接、修改 PATH 或安装软件。
+把示例值改为自己的可执行文件。转换使用 Quarto 随附的 Pandoc；本项目不会创建联接、改写 PATH、下载安装工具或自动准备字体。
 
 ## 3. 命令
 
@@ -59,7 +58,18 @@ New-Item -ItemType Junction -Path .cache\quarto -Target 'D:\Tools\Quarto'
 .\.venv\Scripts\python.exe note2lecture.py export '.\private\note.md' --profile markdown -o output/real-note-new
 ```
 
-该模式支持从首行 H1 提取书名、提升正文标题层级、生成缺少的标题和图片标签、转换空 HTML 锚点及同篇链接、保留无表题表格。也支持列表续行中的缩进独立公式、首尾有空格或段内软换行的行内公式、多段列表（最多四层）、`1)` / `(1)` 列表、显式换行、分隔线及顶层目录占位符 `[toc]`。常见反三角函数、积分、显式盒子及简单手写 `\tag` 编号的边界见适配规则。没有作者不补写，手写章节号保留且不叠加自动编号。本地文档引用只作为文字与路径保留，发出 warning，不会打开或合并被引用文档；PNG/JPEG 仍按资源规则检查并打包。
+该模式支持从首行 H1 提取书名、提升正文标题层级、生成缺少的标题和图片标签、转换空 HTML 锚点及同篇链接、保留无表题表格。正文接受六级标题，四至六级独立成行并保留书签，目录默认到二级。列表最多四层，支持数字、字母和罗马编号，条目可含多段正文及已有支持的其他块。常见积分（含 `\oint`）等命令见 [数学命令清单](math-commands.md)。没有作者不补写，手写章节号保留且不叠加自动编号。本地文档引用只作为文字与路径保留，发出 warning，不会打开或合并被引用文档；PNG/JPEG 仍按资源规则检查并打包。
+
+H1 书名中的行内数学现在经过受控渲染，封面/页眉显示数学，元数据用源码纯文本表示；闭合 `$$` 内部空行保留原文，只在排版副本中作为空白处理。带说明的矩阵变换可在外层箭头或已知带注关系符处分行，支持标准证明结束符 `\blacksquare`。边界与验收见 [矩阵兼容说明](matrix-compat.md)。
+
+默认有序列表按起始编号连续递增，或将统一重复标记（例如全部 `1.`）作为自动编号。跳号、重复混用和前导零返回 `LIST_NUMBERING`。确认要逐项保留原题号时，在检查与导出命令上都加 `--list-numbering preserve`；例如：
+
+```powershell
+.\.venv\Scripts\python.exe note2lecture.py check '.\private\note.md' --profile markdown --list-numbering preserve
+.\.venv\Scripts\python.exe note2lecture.py export '.\private\note.md' --profile markdown --list-numbering preserve -o output/source-numbers-new
+```
+
+该选项连同嵌套列表逐项保留源标签，并记录预期警告。详细边界见 [兼容规则](common-compat.md)。strict 不接受此选项。
 
 样例覆盖的双链、图片嵌入及 note/tip/warning 提示框需显式选择 obsidian 模式；详细边界见 [obsidian-fixture.md](obsidian-fixture.md)：
 
@@ -120,21 +130,8 @@ CLI 输出 JSON；检查或编译成功退出 0，有错误退出 2。`export` �
 
 Quarto 仅生成 LaTeX，再由程序直接运行 XeLaTeX 至少两轮、最多三轮。配置关闭 Quarto 自动安装、代码执行；XeLaTeX 使用 `-no-shell-escape`。失败日志保留，不静默换后端、字体或输入语义。
 
-## 5. 开发验证
+## 5. 工程检查与支持范围
 
-```powershell
-.\.venv\Scripts\python.exe -m pytest -q --basetemp=tmp/pytest-new-run
-.\.venv\Scripts\python.exe -m ruff check .
-.\.venv\Scripts\python.exe scripts/verify_n1.py output/n1-new-check
-.\.venv\Scripts\python.exe scripts/verify_markdown.py '.\private\note.md' output/real-note-new output/real-note-review-new
-.\.venv\Scripts\python.exe scripts/verify_markdown.py examples/04-obsidian.md output/obsidian-new output/obsidian-review-new --profile obsidian
-.\.venv\Scripts\python.exe scripts/verify_batch.py output/batch-review-new
-```
+开发环境准备、测试和内容/页面核对见 [开发验证](development.md)。普通导出只安装两个 Python 运行依赖；Poppler、pytest 与 Ruff 用于开发检查。
 
-测试的 `--basetemp` 和端到端验收目录应使用新的名称，保留已有诊断产物。端到端脚本使用 `pdfinfo`、`pdftotext` 核对页数与正文；它们属于开发验收工具，不是导出运行依赖。PDF 仍需用 Poppler 渲染并逐页查看，文本提取不能证明版面正确。
-
-`verify_markdown.py` 检查已经存在的导出结果，不重新导出；读取明确指定的原稿与其图片，核对原稿 AST / 公式 / PDF 正文 / 标签 / ZIP，并将源包复制到新检查目录重编译。它不会将页面检查自动设为通过，也不打开本地文档引用；不要把私人验证目录提交到 Git。
-
-在 Codex Windows 沙箱内，Quarto 缓存数据库会触发权限限制，因此本轮实际渲染在沙箱外运行；这不等于用户普通终端也需要管理员权限。自动审批如拒绝操作应明确报告，不通过修改系统或其他项目环境绕过。
-
-当前支持明确语法的单篇 Markdown 与明确选定文件的批量导出，每篇独立产物。N2 普通 Markdown 的结果见 [验收记录](n2-validation.md)，Obsidian 样例范围见 [支持规则](obsidian-fixture.md)；折叠、嵌套、整篇笔记嵌入等仍给出诊断。N3 模型建议暂跳过，电子书 PDF 反向提取按规划第 7.1 节另行安排。首套模板的字体、正文密度和数学环境风格已由用户确认；新文档仍需逐篇检查。
+当前支持明确语法的单篇 Markdown 和明确文件清单的批量导出，各篇独立生成产物。[N5 复现记录](n5-validation.md) 说明本轮公开演示的验证条件；[Markdown 适配](markdown-profile.md) 与 [Obsidian 扩展](obsidian-fixture.md) 说明语法边界。新文档仍须逐篇检查，固定样例的通过结论不泛化到任意输入。

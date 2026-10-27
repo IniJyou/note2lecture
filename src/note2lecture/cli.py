@@ -28,9 +28,16 @@ def main(argv=None):
             default="strict",
             help="strict：N0.1；markdown：普通 Markdown；obsidian：样例覆盖的 Obsidian 扩展",
         )
+        part.add_argument(
+            "--list-numbering", choices=("auto", "preserve"), default="auto",
+            help="auto：连续自动编号，跳号报错；preserve：显式保留每项源题号（普通模式）",
+        )
         if command in {"export", "batch"}:
             part.add_argument("--output", "-o", required=True, type=Path, help="全新的独立输出目录")
     args = parser.parse_args(argv)
+    list_options = {"list_numbering": args.list_numbering} if (
+        getattr(args, "list_numbering", "auto") != "auto"
+    ) else {}
     try:
         if args.command == "doctor":
             versions, fonts = dependencies(find_quarto(args.quarto))
@@ -42,7 +49,10 @@ def main(argv=None):
                 "code_execution": False,
             }
         elif args.command == "check":
-            doc = read_document(args.input, find_quarto(args.quarto), args.profile)
+            doc = read_document(
+                args.input, find_quarto(args.quarto), args.profile,
+                list_numbering=args.list_numbering,
+            )
             result = {
                 "status": "checked",
                 "file": doc.path.name,
@@ -62,9 +72,13 @@ def main(argv=None):
                 progress=lambda index, total, name: print(
                     f"[{index}/{total}] 正在处理 {name}", file=sys.stderr, flush=True
                 ),
+                **list_options,
             )
         else:
-            result = export_document(args.input, args.output, args.quarto, args.profile)
+            result = export_document(
+                args.input, args.output, args.quarto, args.profile,
+                **list_options,
+            )
     except NoteError as exc:
         result = {"status": "failed", "diagnostics": [exc.diagnostic.to_dict()]}
     except OSError:
