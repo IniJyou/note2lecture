@@ -12,6 +12,7 @@ import yaml
 from PIL import Image, UnidentifiedImageError
 
 from .diagnostics import Source
+from .math_commands import MARKDOWN_MATH_COMMANDS
 from .tools import pandoc
 
 LABEL = re.compile(r"^(sec|eq|fig|tbl|def|thm|lem|exm)-[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -101,6 +102,15 @@ class Document:
     obsidian: dict = field(default_factory=dict)
     callout_ids: set = field(default_factory=set)
     inline_math: list = field(default_factory=list)
+    list_numbers: dict = field(default_factory=dict)
+    list_numbering: str = "auto"
+    title_range: list = field(default_factory=list)
+    title_math_spans: list = field(default_factory=list)
+    title_inlines: list = field(default_factory=list)
+    title_math: list = field(default_factory=list)
+    title_token: str = ""
+    title_tex: str = ""
+    math_blank_lines: list = field(default_factory=list)
 
     @property
     def markdown_mode(self):
@@ -183,8 +193,21 @@ def lexical_scan(doc, body_offset):
                 mask[i] = " "
 
     hide(0, body_offset)
-    fence = math_start = None
+    if doc.title_range:
+        hide(*doc.title_range)
+    fence = math_start = math_content_start = None
     math_end = "$$"
+    math_in_quote = False
+    dollars = re.compile(r"(?<!\\)(?:\\\\)*(\$\$)")
+
+    def finish_dollars(line_offset, closing):
+        # 只验证这一组分隔符；闭合后的文字/公式留给原生解析器，不隐藏或吞掉。
+        content = text[math_content_start:line_offset + closing.start(1)]
+        if math_in_quote:
+            content = re.sub(r"(?m)^[ \t]*>[ \t]?", "", content)
+        if not content.strip():
+            s.error("STRUCTURE_INVALID", "独立公式为空。", offset=math_start, block="math")
+
     divs = []
     offset = body_offset
     for line in doc.body.splitlines(keepends=True):
@@ -192,16 +215,43 @@ def lexical_scan(doc, body_offset):
         # 列表续行中的围栏会缩进；只屏蔽记号，原文和缩进都交给 Pandoc 保留。
         if doc.markdown_mode:
             stripped = stripped.strip(" \t")
+            # 只在定位副本识别既有的单层引用/列表容器；原始文本仍交给 Pandoc。
+            container = re.match(
+                r"(?:>[ \t]*)?(?:(?:[-+*]|[0-9]+[.)]|\([0-9]+\))[ \t]+)?", stripped,
+            )
+            quoted = container[0].startswith(">")
+            stripped = stripped[container.end():]
         if fence is not None:
             hide(offset, offset + len(line))
             if stripped == "```":
                 fence = None
         elif math_start is not None:
-            hide(offset, offset + len(line))
-            if (math_end == "$$" and re.fullmatch(r"\$\$(?: \{#[-a-z0-9]+\})?", stripped)) or (
+            if doc.markdown_mode and math_end == "$$":
+                if re.match(r"#{1,6}[ \t]|```", stripped):
+                    s.error(
+                        "STRUCTURE_INVALID", "独立公式在闭合前跨越了标题或代码块。",
+                        offset=math_start, block="math",
+                        hint="请在下一文档块之前闭合 $$。",
+                    )
+                if not stripped:
+                    doc.math_blank_lines.append({
+                        "offset": offset + len(line.rstrip("\n")),
+                        "token": f"NtwoLBlank{doc.sha256[:16]}X{len(doc.math_blank_lines)}X",
+                    })
+                closing = dollars.search(line)
+                if closing:
+                    finish_dollars(offset, closing)
+                    math_start = None
+                    hide(offset, offset + closing.end(1))
+                else:
+                    hide(offset, offset + len(line))
+            elif (math_end == "$$" and re.fullmatch(r"\$\$(?: \{#[-a-z0-9]+\})?", stripped)) or (
                 math_end == r"\]" and stripped == math_end
             ):
+                hide(offset, offset + len(line))
                 math_start = None
+            else:
+                hide(offset, offset + len(line))
         elif stripped.startswith("```"):
             if stripped not in {"```", "```python", "```text"}:
                 s.error(
@@ -211,11 +261,25 @@ def lexical_scan(doc, body_offset):
                     block="code",
                 )
             fence = offset
-            hide(offset, offset + len(line))
+            hide(offset + line.index("```") if doc.markdown_mode else offset, offset + len(line))
+        elif doc.markdown_mode and stripped.startswith("$$"):
+            # 同行、独占围栏及跨行贴正文三种形式使用同一个配对状态，原文由后端保留。
+            opening_end = line.index("$$") + 2
+            math_start = offset + opening_end - 2
+            math_content_start = offset + opening_end
+            math_in_quote = quoted
+            math_end = "$$"
+            closing = dollars.search(line, opening_end)
+            if closing:
+                finish_dollars(offset, closing)
+                hide(math_start, offset + closing.end(1))
+                math_start = None
+            else:
+                hide(math_start, offset + len(line))
         elif stripped == "$$" or (doc.markdown_mode and stripped == r"\["):
-            math_start = offset
+            math_start = offset + line.index(stripped) if doc.markdown_mode else offset
             math_end = "$$" if stripped == "$$" else r"\]"
-            hide(offset, offset + len(line))
+            hide(math_start, offset + len(line))
         elif stripped.startswith(":::"):
             if stripped == ":::":
                 if not divs:
@@ -228,7 +292,10 @@ def lexical_scan(doc, body_offset):
         offset += len(line)
     for start, kind in ((fence, "代码围栏"), (math_start, "独立公式")):
         if start is not None:
-            s.error("STRUCTURE_INVALID", f"{kind}未闭合。", offset=start)
+            s.error(
+                "STRUCTURE_INVALID", f"{kind}未闭合。", offset=start,
+                block="math" if kind == "独立公式" and doc.markdown_mode else "document",
+            )
     if divs:
         s.error("STRUCTURE_INVALID", "数学环境未闭合。", offset=divs[0])
     view = "".join(mask)
@@ -238,7 +305,7 @@ def lexical_scan(doc, body_offset):
     if doc.markdown_mode:
         from .math_input import inline_spans
 
-        doc.inline_math = inline_spans(view, s)
+        doc.inline_math = inline_spans(view, s, hide_display=hide)
         for span in doc.inline_math:
             hide(span["start"], span["end"])
     else:
@@ -281,7 +348,7 @@ def lexical_scan(doc, body_offset):
     doc.visible = view
 
 
-def read_document(path, quarto, profile="strict"):
+def read_document(path, quarto, profile="strict", *, list_numbering="auto"):
     path = Path(path).absolute()
     raw = path.read_bytes()
     try:
@@ -293,6 +360,10 @@ def read_document(path, quarto, profile="strict"):
         source.error("UNSUPPORTED_SYNTAX", "入口必须为单篇 .md 文件。")
     if profile not in {"strict", "markdown", "obsidian"}:
         source.error("INPUT_METADATA", "未知输入模式。")
+    if list_numbering not in {"auto", "preserve"} or (
+        profile == "strict" and list_numbering != "auto"
+    ):
+        source.error("INPUT_METADATA", "源题号保留选项仅用于 markdown / obsidian。")
     if profile in {"markdown", "obsidian"}:
         from .markdown import markdown_input
 
@@ -301,7 +372,12 @@ def read_document(path, quarto, profile="strict"):
         meta, body, offset = metadata_and_body(source)
         adaptations = []
     doc = Document(path, source, meta, body, {}, digest(raw), profile=profile)
+    doc.list_numbering = list_numbering
     doc.adaptations = adaptations
+    if doc.markdown_mode:
+        from .title_input import prepare_title
+
+        prepare_title(doc, quarto)
     lexical_scan(doc, offset)
     if doc.markdown_mode:
         from .math_input import parse_ast
@@ -313,30 +389,61 @@ def read_document(path, quarto, profile="strict"):
         from .markdown import adapt_markdown
 
         adapt_markdown(doc, quarto)
+        if doc.math_blank_lines:
+            doc.adaptations.append({
+                "kind": "math_blank_lines",
+                "lines": [source.position(item["offset"])[0] for item in doc.math_blank_lines],
+                "source_unchanged": True, "render_whitespace": "par_token_to_space",
+            })
     validate_ast(doc)
     return doc
+
+
+def validate_math_commands(doc):
+    """一次报告数学节点中全部未知命令；代码里的字面示例不参加扫描。"""
+    s = doc.source
+    allowed_commands = MATH_COMMANDS | (MARKDOWN_MATH_COMMANDS if doc.markdown_mode else set())
+    unknown = {}
+    for node in nodes(doc.ast["blocks"]):
+        if node["t"] != "Math":
+            continue
+        # 两个反斜线是矩阵换行，不能把 \\\\x 的第二个反斜线误判为命令。
+        for command in re.finditer(r"(?<!\\)(?:\\\\)*\\([A-Za-z]+)", node["c"][1]):
+            if command[1] not in allowed_commands:
+                name = "\\" + command[1]
+                if name not in unknown:
+                    offset = s.text.find(name)
+                    line, column = s.position(offset)
+                    unknown[name] = {
+                        "command": name, "file": s.filename, "line": line, "column": column,
+                        "approximate": offset < 0 or s.text.count(name) > 1,
+                    }
+    if unknown:
+        s.error(
+            "UNSUPPORTED_SYNTAX", "不支持的数学命令：" + "、".join(unknown),
+            next(iter(unknown)), block="math", related=list(unknown.values()),
+            hint="已汇总当前文档全部未知数学命令（去重）；不加载自定义宏或额外宏包。",
+        )
 
 
 def validate_math(doc, node):
     text = node["c"][1]
     s = doc.source
-    # 两个反斜线是矩阵换行，不能把 \\\\x 的第二个反斜线误判为命令。
-    for command in re.finditer(r"(?<!\\)(?:\\\\)*\\([A-Za-z]+)", text):
-        extra = {
-            "longrightarrow", "Longrightarrow", "mid", "odot", "dim", "arcsin", "arccos",
-            "arctan", "cot", "boxed", "bigl", "bigr", "Bigl", "Bigr", "uparrow", "downarrow",
-            "therefore", "Longleftrightarrow", "square", "tag", "iiint", "oiint",
-            "lt", "gt", "xrightarrow", "dagger", "checkmark", "arg", "bigcup",
-        }
-        if command[1] not in MATH_COMMANDS | (extra if doc.markdown_mode else set()):
-            s.error(
-                "UNSUPPORTED_SYNTAX", f"不支持的数学命令：{command[0]}", command[0], block="math"
-            )
     stack = []
+    environments = MATH_ENVS | ({"array"} if doc.markdown_mode else set())
     for match in re.finditer(r"\\(begin|end)\{([^}]+)\}", text):
-        if match[2] not in MATH_ENVS:
+        if match[2] not in environments:
             s.error("UNSUPPORTED_SYNTAX", f"不支持的数学子环境：{match[2]}", match[0])
         if match[1] == "begin":
+            if match[2] == "array":
+                # 只接受基础对齐列与竖线，拒绝宏、嵌套参数及可执行的列格式修饰。
+                columns = re.match(r"\s*\{([lcr| \t\r\n]+)\}", text[match.end():])
+                if not columns or not re.search(r"[lcr]", columns[1]):
+                    s.error(
+                        "UNSUPPORTED_SYNTAX", "array 仅支持由 l、c、r、竖线和空白组成的列格式。",
+                        text[match.start():match.end()], block="math",
+                        hint="例如 {ccc|c}；暂不支持宽度列、宏、重复列或列格式修饰命令。",
+                    )
             stack.append(match[2])
         elif not stack or stack.pop() != match[2]:
             s.error("STRUCTURE_INVALID", "数学子环境未正确配对。", match[0])
@@ -353,6 +460,7 @@ def validate_math(doc, node):
 
 def validate_ast(doc):
     s = doc.source
+    validate_math_commands(doc)
     previous_heading = 0
     allowed = {
         "Para",
@@ -421,6 +529,10 @@ def validate_ast(doc):
         kind, c = value["t"], value.get("c")
         if kind in {
             "Decimal",
+            "LowerAlpha",
+            "UpperAlpha",
+            "LowerRoman",
+            "UpperRoman",
             "Period",
             "OneParen",
             "TwoParens",
@@ -442,8 +554,14 @@ def validate_ast(doc):
             if c[1][1] or c[1][2]:
                 s.error("UNSUPPORTED_SYNTAX", "标题不接受自定义样式属性。", plain(c[2]))
             if not in_env:
-                if c[0] > 3 or c[0] > previous_heading + 1:
-                    s.error("INPUT_METADATA", "标题层级过深或跳级。", plain(c[2]), block="heading")
+                heading_limit = 6 if doc.markdown_mode else 3
+                if c[0] > heading_limit or c[0] > previous_heading + 1:
+                    s.error(
+                        "INPUT_METADATA", "标题层级过深或跳级。", plain(c[2]), block="heading",
+                        offset=doc.generated_labels.get(c[1][0]),
+                        hint=f"当前第 {c[0]} 级，前一标题第 {previous_heading} 级；"
+                             f"正文最多 {heading_limit} 级，向下最多增加一级。",
+                    )
                 previous_heading = c[0]
                 label(c[1][0], "sec")
         elif kind == "Div":
@@ -474,7 +592,10 @@ def validate_ast(doc):
             items = c if kind == "BulletList" else c[1]
             if kind == "OrderedList":
                 styles = {"Period", "OneParen", "TwoParens"} if doc.markdown_mode else {"Period"}
-                if c[0][1]["t"] != "Decimal" or c[0][2]["t"] not in styles:
+                numbers = {"Decimal", "LowerAlpha", "UpperAlpha", "LowerRoman", "UpperRoman"}
+                if c[0][1]["t"] not in (numbers if doc.markdown_mode else {"Decimal"}) or (
+                    c[0][2]["t"] not in styles
+                ):
                     s.error("UNSUPPORTED_SYNTAX", "不支持此有序列表编号形式。", plain(value))
             for item in items:
                 if doc.markdown_mode:

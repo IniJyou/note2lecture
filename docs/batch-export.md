@@ -12,6 +12,8 @@
 
 普通 Markdown 使用 `--profile markdown`；样例覆盖的 Obsidian 扩展使用 `--profile obsidian`。与单篇命令一致，默认是 `strict`。一批内需要不同模式时，分批运行。
 
+普通模式需要逐项保留源题号时，可加共同的 `--list-numbering preserve`，逐篇传给单篇转换器；默认自动编号遇到跳号等先诊断，不静默重排。各文件需要不同策略时分批运行，规则见 [兼容说明](common-compat.md)。
+
 文件较多时可以在 PowerShell 中明确列出路径，替换成你实际选定的文件：
 
 ```powershell

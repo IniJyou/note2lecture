@@ -6,15 +6,36 @@ import re
 from .tools import pandoc
 
 
-def inline_spans(view, source):
-    """代码与独立公式已屏蔽；行内公式可软换行，但不能跨越空段或块边界。"""
+def inline_spans(view, source, *, hide_display):
+    """在代码等屏蔽区之外区分同行独立公式与行内公式，行内公式不能跨空段或块边界。"""
     spans = []
     delimiters = re.compile(r"(?<!\\)\\[()]|(?<!\\)\$")
     start = None
     closing = None
+    skip_until = 0
+    display_end = re.compile(r"(?<!\\)(?:\\\\)*(\$\$)")
     for match in delimiters.finditer(view):
+        if match.start() < skip_until:
+            continue
         token = match[0]
         if start is None:
+            if token == "$" and view[match.end():match.end() + 1] == "$":
+                # 段落/列表说明后的完整同行公式由 Pandoc 原生读取，代码已被屏蔽。
+                stop = view.find("\n", match.end() + 1)
+                end = display_end.search(view, match.end() + 1, len(view) if stop < 0 else stop)
+                if end is None:
+                    source.error(
+                        "STRUCTURE_INVALID", "段落内的独立公式未在本行闭合。",
+                        offset=match.start(), block="math",
+                        hint="跨行独立公式请放在单独的内容行；同行公式须配对 $$。",
+                    )
+                if not source.text[match.end() + 1:end.start(1)].strip():
+                    source.error(
+                        "STRUCTURE_INVALID", "独立公式为空。", offset=match.start(), block="math",
+                    )
+                hide_display(match.start(), end.end(1))
+                skip_until = end.end(1)
+                continue
             if token == r"\)":
                 source.error("STRUCTURE_INVALID", "多余的行内公式结束符。", offset=match.start())
             start = match
@@ -52,22 +73,46 @@ def parse_ast(doc, body, quarto):
     offset = len(doc.source.text) - len(body)
     replacements = {}
     boundaries = set()
-    for index, span in reversed(list(enumerate(doc.inline_math))):
+    edits = []
+    for index, span in reversed(list(enumerate([*doc.inline_math, *doc.title_math_spans]))):
+        if body[span["start"] - offset:span["end"] - offset] != doc.source.text[
+            span["start"]:span["end"]
+        ]:
+            continue  # 书名在正文副本中已移出；独立原稿复查时才恢复对应行内公式。
         token = f"NtwoLInline{doc.sha256[:16]}X{index}X"
         replacements[token] = span
         # 原生解析器不接受结束符紧接数字；仅在解析副本加入可移除的边界。
         boundary = "<!--" + token + "-->"
         boundaries.add(boundary)
-        body = (
-            body[: span["start"] - offset] + r"\(" + token + r"\)" + boundary
-            + body[span["end"] - offset :]
-        )
+        edits.append((span["start"], span["end"], r"\(" + token + r"\)" + boundary))
+    from .list_input import collect_lists, list_insertions
+
+    markers, list_edits = list_insertions(doc, offset)
+    edits.extend(list_edits)
+    blank_tokens = {}
+    for blank in doc.math_blank_lines:
+        blank_tokens[blank["token"]] = blank["offset"]
+        edits.append((blank["offset"], blank["offset"], blank["token"]))
+    for start, end, replacement in sorted(edits, reverse=True):
+        body = body[:start - offset] + replacement + body[end - offset:]
     ast = json.loads(pandoc(quarto, body, doc.reader, "json"))
+    collect_lists(doc, ast, markers)
     for node in nodes(ast["blocks"]):
+        if node["t"] == "Math":
+            for token in list(blank_tokens):
+                if token in node["c"][1]:
+                    if node["c"][0]["t"] != "DisplayMath" or node["c"][1].count(token) != 1:
+                        doc.source.error("STRUCTURE_INVALID", "公式内部空白标记未能安全恢复。",
+                                         offset=blank_tokens[token], block="math")
+                    node["c"][1] = node["c"][1].replace(token, "")
+                    del blank_tokens[token]
         if node["t"] == "Math" and node["c"][0]["t"] == "InlineMath":
             span = replacements.pop(node["c"][1], None)
             if span is not None:
                 node["c"][1] = span["text"]
+    if blank_tokens:
+        doc.source.error("STRUCTURE_INVALID", "后端未将带空行的内容解析为完整独立公式。",
+                         offset=next(iter(blank_tokens.values())), block="math")
 
     def clean(value):
         if isinstance(value, list):
@@ -75,8 +120,8 @@ def parse_ast(doc, body, quarto):
             for item in value:
                 if isinstance(item, dict) and item.get("t") in {"RawInline", "RawBlock"}:
                     fmt, text = item["c"]
-                    if fmt == "html" and text in boundaries:
-                        boundaries.remove(text)
+                    if fmt == "html" and (text in boundaries or text in markers):
+                        boundaries.discard(text)
                         continue
                 clean(item)
                 kept.append(item)

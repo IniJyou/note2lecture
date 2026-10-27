@@ -21,7 +21,8 @@ def failed_report(diagnostic):
     }
 
 
-def export_batch(input_paths, output, quarto=None, profile="strict", *, progress=None):
+def export_batch(input_paths, output, quarto=None, profile="strict", *, progress=None,
+                 list_numbering="auto"):
     inputs = [Path(path).absolute() for path in input_paths]
     if not inputs:
         raise NoteError(Diagnostic("BATCH_INPUT_EMPTY", "请明确指定至少一篇 Markdown。", "<batch>"))
@@ -71,7 +72,10 @@ def export_batch(input_paths, output, quarto=None, profile="strict", *, progress
                     hint=f"与本批第 {seen[identity]} 项相同；不同目录的同名文件可以分别导出。",
                 ))
             seen[identity] = index
-            result = export_document(path, target, quarto, profile)
+            result = export_document(
+                path, target, quarto, profile,
+                **({"list_numbering": list_numbering} if list_numbering != "auto" else {}),
+            )
         except KeyboardInterrupt:
             # 未完成项仍计入 pending，不能把中断当作整批完成。
             report["status"] = "interrupted"

@@ -14,6 +14,8 @@ import yaml
 from . import __version__
 from .diagnostics import Diagnostic, NoteError
 from .document import digest, nodes, plain, read_document
+from .text_glyphs import GLYPHS, GREEK_FONTS, glyph_inlines, glyph_usage
+from .title_input import bookmark_text, literal_metadata_tex
 from .tools import ROOT, find_quarto, pandoc, run, tool_versions
 
 FONT_FILES = [
@@ -25,6 +27,7 @@ FONT_FILES = [
     "lmmono10-regular.otf",
     "latinmodern-math.otf",
 ]
+WORKING_MARKDOWN_FORMAT = "markdown-smart-raw_tex-simple_tables-multiline_tables-grid_tables"
 PACKAGES = [
     "ctexart.cls",
     "amsthm.sty",
@@ -42,10 +45,13 @@ def write_json(path, value):
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-def dependencies(quarto):
+def dependencies(quarto, *, profile="strict", lightbulb=False):
     versions = tool_versions(quarto)
     fonts = []
-    for filename in PACKAGES + FONT_FILES:
+    font_files = FONT_FILES + (GREEK_FONTS if profile != "strict" else [])
+    if lightbulb:
+        font_files = font_files + ["seguisym.ttf"]
+    for filename in PACKAGES + font_files:
         result = run(["kpsewhich", filename])
         located = Path(result.stdout.strip())
         if result.returncode or not located.is_file():
@@ -57,7 +63,7 @@ def dependencies(quarto):
                     hint="请由用户准备依赖后重试。",
                 )
             )
-        if filename in FONT_FILES:
+        if filename in font_files:
             fonts.append({"file": filename, "sha256": digest(located.read_bytes())})
     versions.update(python=sys.version.split()[0], PyYAML=yaml.__version__, Pillow=PIL.__version__)
     return versions, fonts
@@ -79,28 +85,27 @@ def ref_tex(identifier):
     return r"\hyperref[" + identifier + "]{" + visible + "}"
 
 
-def bookmark_text(text):
-    """书签使用公式源码的普通文本表示，TeX 特殊字符只作字面显示。"""
-    escapes = {
-        "\\": r"\textbackslash{}", "{": r"\{", "}": r"\}", "$": r"\$",
-        "&": r"\&", "#": r"\#", "%": r"\%", "_": r"\_",
-        "^": r"\textasciicircum{}", "~": r"\textasciitilde{}",
-    }
-    return "".join(escapes.get(char, char) for char in " ".join(text.split()))
-
-
-TEXT_SYMBOLS = {"①", "②", "③", "∎"}
-
-
 def heading_bookmark(heading):
     return any(
-        x["t"] == "Math" or (x["t"] == "Str" and TEXT_SYMBOLS.intersection(x["c"]))
+        x["t"] == "Math" or (x["t"] == "Str" and GLYPHS.search(x["c"]))
         for x in nodes(heading)
     )
 
 
 def prepare_ast(doc, package):
     ast = copy.deepcopy(doc.ast)
+    if doc.markdown_mode and doc.list_numbering == "preserve":
+        originals = [x for x in nodes(doc.ast["blocks"]) if x["t"] == "OrderedList"]
+        copies = [x for x in nodes(ast["blocks"]) if x["t"] == "OrderedList"]
+        for original, target in zip(originals, copies, strict=True):
+            for record, item in zip(doc.list_numbers[id(original)], target["c"][1], strict=True):
+                label = {
+                    "t": "RawInline", "c": ["latex", "\\NtwoLListLabel{" + record["marker"] + "}"],
+                }
+                if item and item[0]["t"] in {"Plain", "Para"}:
+                    item[0]["c"].insert(0, label)
+                else:
+                    item.insert(0, {"t": "Plain", "c": [label]})
     resources = {x["original"]: x for x in doc.resources}
     heading_nodes = {
         id(child)
@@ -121,10 +126,13 @@ def prepare_ast(doc, package):
     }
     for item in nodes(ast["blocks"]):
         kind, c = item["t"], item.get("c")
-        if doc.markdown_mode and kind == "Header" and heading_bookmark(item):
-            c[2].append(
-                {"t": "RawInline", "c": ["latex", r"\NtwoLHeadingBookmark{" + c[1][0] + "}"]}
-            )
+        if doc.markdown_mode and kind == "Header":
+            if c[0] >= 4:
+                c[1][2].append(["n2l-bookmark-tex", bookmark_text(plain(c[2]))])
+            elif heading_bookmark(item):
+                c[2].append(
+                    {"t": "RawInline", "c": ["latex", r"\NtwoLHeadingBookmark{" + c[1][0] + "}"]}
+                )
         elif kind == "Cite":
             item.update(t="RawInline", c=["latex", ref_tex(c[0][0]["citationId"])])
         elif kind == "Image":
@@ -165,14 +173,9 @@ def prepare_ast(doc, package):
             if c[0]["t"] == "DisplayMath" and not re.search(r"\\tag\b", c[1]):
                 token = r"\NtwoLDisplay{" + token + "}"
             c[1] = token
-        elif doc.markdown_mode and kind == "Str" and TEXT_SYMBOLS.intersection(c):
+        elif doc.markdown_mode and kind == "Str" and GLYPHS.search(c):
             # 只切换已知缺字的字体，保留原 Unicode 字符；代码和数学不走此路径。
-            pieces = re.split("([①②③∎])", c)
-            item.update(t="Span", c=[["", [], []], [
-                {"t": "RawInline", "c": ["latex", r"\NtwoLTextSymbol{" + p + "}"]}
-                if p in TEXT_SYMBOLS else {"t": "Str", "c": p}
-                for p in pieces if p
-            ]])
+            item.update(t="Span", c=[["", [], []], glyph_inlines(c)])
             if id(item) in heading_nodes:
                 heading_nodes.update(id(x) for x in nodes(item))
         elif doc.markdown_mode and kind in {"Code", "Str"} and id(item) not in heading_nodes:
@@ -268,12 +271,17 @@ def restore_display_math(tex, doc):
     """仅展开程序生成的行内/独立数学占位符，保持空格和换行。"""
     if not doc.markdown_mode:
         return tex
+    if doc.title_token:
+        if doc.title_token not in tex:
+            doc.source.error("COMPILE_FAILED", "后端未保留受控书名标记。", block="metadata")
+        tex = tex.replace(doc.title_token, doc.title_tex)
     expected = {}
     heading_math = Counter(
         digest(node["c"][1].encode())
         for heading in nodes(doc.ast["blocks"]) if heading["t"] == "Header"
         for node in nodes(heading) if node["t"] == "Math"
     )
+    heading_math.update(item["sha256"] for item in doc.title_math)
     for math in doc.math:
         if heading_math[math["sha256"]]:
             heading_math[math["sha256"]] -= 1
@@ -284,7 +292,12 @@ def restore_display_math(tex, doc):
         entries = expected.get(match[1], [])
         if not entries:
             doc.source.error("COMPILE_FAILED", "后端产生了非预期的公式占位符。", block="math")
-        return entries.pop()
+        original = entries.pop()
+        parent = tex[max(0, match.start() - 120):match.start()]
+        in_display = re.search(r"\\NtwoLMathDisplay\{" + match[1] + r"\}\{\s*$", parent)
+        if re.search(r"\n[ \t]*\n", original) and not in_display:
+            return r"\NtwoLMathWhitespace{" + original + "}"
+        return original
 
     tex = re.sub(r"\\NtwoLMathToken\{([0-9a-f]{64})\}", restore, tex)
     if any(expected.values()):
@@ -297,7 +310,7 @@ def restore_display_math(tex, doc):
             hint="这是后端输出完整性问题；保留本次中间文件供排查，不要删除保护检查。",
         )
     for heading in nodes(doc.ast["blocks"]):
-        if heading["t"] != "Header" or not heading_bookmark(heading):
+        if heading["t"] != "Header" or heading["c"][0] >= 4 or not heading_bookmark(heading):
             continue
         ident = heading["c"][1][0]
         marker = r"\NtwoLHeadingBookmark{" + ident + "}"
@@ -331,8 +344,32 @@ def tex_source_map(tex, doc):
 
 def log_diagnostics(log, doc, mapping):
     diagnostics = []
+    # Missing character 通常没有 TeX 行号。按字符汇总日志，并列出原稿候选位置，
+    # 不再根据附近不相干的 Overfull 行号或默认第 1 行推断缺字位置。
+    glyphs = {}
+    for hit in re.finditer(r"Missing character:[^\n]*", log):
+        code = re.search(r"\(U\+([0-9A-Fa-f]+)\)", hit[0])
+        if code:
+            glyphs.setdefault(int(code[1], 16), []).append(hit[0])
+        else:
+            diagnostics.append(Diagnostic(
+                "GLYPH_MISSING", hit[0], doc.path.name, block="layout", approximate=True,
+                hint="日志未提供可定位的 Unicode 码点；查看 _build/main.log。",
+            ))
+    for code, messages in glyphs.items():
+        char = chr(code)
+        positions = [doc.source.position(hit.start())
+                     for hit in re.finditer(re.escape(char), doc.source.text)]
+        related = [{"line": line, "column": column, "kind": "source_candidate"}
+                   for line, column in positions]
+        line, column = positions[0] if positions else (1, 1)
+        diagnostics.append(Diagnostic(
+            "GLYPH_MISSING", messages[0], doc.path.name, line, column, block="layout",
+            approximate=len(positions) != 1, related=related or None,
+            hint=f"编译日志报告 {len(messages)} 次；原稿有 {len(positions)} 处该字符候选位置，"
+                 "见 related（不代表每处都缺字，标题/页眉也可能重复排版）。查看 _build/main.log。",
+        ))
     patterns = [
-        ("GLYPH_MISSING", r"Missing character:[^\n]*"),
         ("LAYOUT_OVERFLOW", r"Overfull \\[hv]box[^\n]*"),
         ("REF_UNDEFINED", r"LaTeX Warning: (?:Reference|There were undefined)[^\n]*"),
     ]
@@ -405,6 +442,10 @@ xelatex -no-shell-escape -halt-on-error -interaction=nonstopmode main.tex
 所需宏包包括 ctex、unicode-math、amsmath、amsthm、graphicx、geometry、longtable、
 booktabs、caption、fvextra、fancyhdr、needspace、setspace、hyperref 等。
 依赖的实际工具版本及字体摘要见 manifest.json。字体文件未随包分发。
+普通 Markdown / Obsidian 模板还使用 TeX Live 的 FreeSerif 四种字形；
+正文希腊字母保留粗体/斜体，已支持的符号按黑白样式显示。
+含灯泡符号的源包需要 Windows 的 Segoe UI Symbol（seguisym.ttf）；不随包分发或自动安装。
+已支持符号后的样式选择符在 TeX 原参数中保留，黑白显示与 PDF 复制可不含选择符。
 
 normalized.md 是生成过程的工作副本，不是原稿；引用已转换为受控 LaTeX，
 资源路径和代码块属性已经重写。render-config.yml 记录受控渲染设置。
@@ -413,7 +454,7 @@ normalized.md 是生成过程的工作副本，不是原稿；引用已转换为
 """
 
 
-def export_document(input_path, output, quarto=None, profile="strict"):
+def export_document(input_path, output, quarto=None, profile="strict", *, list_numbering="auto"):
     output = Path(output).absolute()
     if output.exists() or output.is_symlink():
         raise NoteError(
@@ -435,8 +476,19 @@ def export_document(input_path, output, quarto=None, profile="strict"):
     }
     try:
         quarto = find_quarto(quarto)
-        versions, fonts = dependencies(quarto)
-        doc = read_document(input_path, quarto, profile)
+        doc = read_document(input_path, quarto, profile, list_numbering=list_numbering)
+        usage = glyph_usage(doc) if doc.markdown_mode else {}
+        versions, fonts = dependencies(
+            quarto, profile=profile, lightbulb=any(x.startswith("💡") for x in usage),
+        )
+        if usage:
+            doc.adaptations.append({
+                "kind": "text_glyph_fallback", "sequences": usage,
+                "greek_font": "FreeSerif", "symbol_font": "FreeSerif",
+                "lightbulb_font": "Segoe UI Symbol" if any(x.startswith("💡") for x in usage)
+                else None,
+                "emoji_style": "monochrome", "source_unchanged": True,
+            })
         report["diagnostics"] = [x.to_dict() for x in doc.warnings]
         report["checks"]["structure"] = True
         package = output / "lecture-source"
@@ -462,10 +514,22 @@ def export_document(input_path, output, quarto=None, profile="strict"):
                 )
             (package / resource["packed"]).write_bytes(data)
         ast = prepare_ast(doc, package)
-        body = pandoc(quarto, json.dumps(ast, ensure_ascii=False), "json", "markdown-smart-raw_tex")
+        # Unicode 字符在简单表格的显示列宽与字节宽不同，不能让中间文本按空格猜列边界。
+        # 使用有明确竖线边界的表格，避免受控行内宏被截成可见的 `{=latex}` 残片。
+        body = pandoc(
+            quarto, json.dumps(ast, ensure_ascii=False), "json",
+            WORKING_MARKDOWN_FORMAT,
+        )
         normalized = "---\n" + yaml.safe_dump(doc.metadata, allow_unicode=True) + "---\n" + body
         (package / "normalized.md").write_text(normalized, encoding="utf-8")
         config = render_config(doc.metadata)
+        metadata_tokens = {}
+        if doc.markdown_mode and GLYPHS.search(str(doc.metadata.get("author", ""))):
+            token = "NtwoLAuthor" + doc.sha256[:20]
+            metadata_tokens[token] = literal_metadata_tex(doc.metadata["author"], quarto)
+            config["author"] = token
+        if doc.title_token:
+            config["title"] = doc.title_token
         if doc.markdown_mode:
             config["format"]["latex"]["number-sections"] = False
             config["format"]["latex"]["include-in-header"].append("template/markdown.tex")
@@ -495,6 +559,10 @@ def export_document(input_path, output, quarto=None, profile="strict"):
             )
         tex_path = package / "main.tex"
         tex = restore_display_math(adapt_preamble(tex_path.read_text(encoding="utf-8")), doc)
+        for token, value in metadata_tokens.items():
+            if token not in tex:
+                doc.source.error("COMPILE_FAILED", "后端未保留受控作者标记。", block="metadata")
+            tex = tex.replace(token, value)
         for math in doc.math:
             if math["text"] not in tex:
                 doc.source.error(

@@ -2,6 +2,7 @@
 % 原始参数始终完整保留；删除生成标记后，TeX token 必须与原文完全相同。
 \ExplSyntaxOn
 \cs_generate_variant:Nn \clist_if_in:nnT { ee }
+\cs_generate_variant:Nn \clist_if_in:nnTF { ee }
 \cs_generate_variant:Nn \str_head:n { e }
 \tl_new:N \l__ntwol_original_tl
 \tl_new:N \l__ntwol_wrapped_tl
@@ -17,8 +18,21 @@
 \bool_new:N \l__ntwol_content_bool
 \bool_new:N \l__ntwol_force_first_bool
 \bool_new:N \l__ntwol_evaluation_bar_bool
+\bool_new:N \l__ntwol_sums_bool
+\bool_new:N \l__ntwol_operand_bool
+\bool_new:N \l__ntwol_chosen_bool
+\tl_new:N \l__ntwol_best_tl
+\dim_new:N \l__ntwol_best_dim
+\int_new:N \l__ntwol_best_breaks_int
+\seq_new:N \l__ntwol_chunks_seq
+\tl_new:N \l__ntwol_row_tl
+\tl_new:N \l__ntwol_packed_tl
+\tl_new:N \l__ntwol_trial_tl
+\tl_new:N \l__ntwol_clean_math_tl
+\tl_new:N \l__ntwol_annotation_tl
+\tl_new:N \l__ntwol_relation_text_tl
 
-\cs_new:Npn \NtwoLWrapBreak { \\ & }
+\cs_new:Npn \NtwoLWrapBreak { \\ & {} }
 \cs_new_protected:Npn \__ntwol_add_break:
   {
     \tl_put_right:Nn \l__ntwol_wrapped_tl { \NtwoLWrapBreak }
@@ -73,8 +87,8 @@
           { \int_decr:N \l__ntwol_argument_int }
       }
       {
-        % 整个矩阵是不可拆分的数学原子；仅核对环境配对，不检查内部关系符或换行。
-        \clist_if_in:nnF {matrix,pmatrix,bmatrix,Bmatrix,vmatrix,Vmatrix,smallmatrix} {#1}
+        % 矩阵和受控 array 整块保留，列格式、竖线及单元格内的记号都不作为断点。
+        \clist_if_in:nnF {matrix,pmatrix,bmatrix,Bmatrix,vmatrix,Vmatrix,smallmatrix,array} {#1}
           { \bool_set_false:N \l__ntwol_safe_bool }
         \tl_if_eq:NnTF \l__ntwol_environment_action_tl {begin}
           { \seq_put_right:Nn \l__ntwol_environment_seq {#1} }
@@ -89,10 +103,22 @@
         \tl_clear:N \l__ntwol_environment_action_tl
       }
     \bool_set_true:N \l__ntwol_content_bool
+    \bool_set_true:N \l__ntwol_operand_bool
     \__ntwol_scan:
   }
 \cs_new_protected:Npn \__ntwol_control:N #1
   {
+    % 无括号的大算子作用范围不明确，仅允许关系符方案，不猜测加减断点。
+    \bool_if:NT \l__ntwol_sums_bool
+      {
+        \clist_if_in:eeT
+          {\tl_to_str:n {sum,prod,coprod,int,iint,iiint,iiiint,oint,oiint,oiiint,idotsint,lim,
+           min,max,inf,sup,bigcup,bigcap,bigvee,bigwedge,bigoplus,bigotimes,biguplus,
+           hspace,stackrel,overset,underset,mathop,mathrel,mathbin,mathord,mathopen,
+           mathclose,mathpunct,mathinner,operatorname,text,textrm,xrightarrow,xleftarrow}}
+          {\cs_to_str:N #1}
+          {\bool_set_false:N \l__ntwol_safe_bool}
+      }
     \str_if_eq:eeT {\cs_to_str:N #1} {\c_left_brace_str}
       {\__ntwol_open_delimiter:}
     \str_if_eq:eeT {\cs_to_str:N #1} {\c_right_brace_str}
@@ -117,6 +143,10 @@
         { rVert } { \__ntwol_close_delimiter: }
         { lbrace } { \__ntwol_open_delimiter: }
         { rbrace } { \__ntwol_close_delimiter: }
+        { lfloor } { \__ntwol_open_delimiter: }
+        { rfloor } { \__ntwol_close_delimiter: }
+        { lceil } { \__ntwol_open_delimiter: }
+        { rceil } { \__ntwol_close_delimiter: }
         { vert } { \bool_set_false:N \l__ntwol_safe_bool }
         { Vert } { \bool_set_false:N \l__ntwol_safe_bool }
         { | } { \bool_set_false:N \l__ntwol_safe_bool }
@@ -134,11 +164,24 @@
         { geq } { \__ntwol_relation: }
         { ne } { \__ntwol_relation: }
         { neq } { \__ntwol_relation: }
+        { rightarrow } { \__ntwol_relation: }
+        { leftarrow } { \__ntwol_relation: }
+        { longrightarrow } { \__ntwol_relation: }
+        { longleftarrow } { \__ntwol_relation: }
+        { leftrightarrow } { \__ntwol_relation: }
+        { longleftrightarrow } { \__ntwol_relation: }
+        { mapsto } { \__ntwol_relation: }
+        { xrightarrow } { \__ntwol_relation: \int_set:Nn \l__ntwol_argument_int {1} }
+        { xleftarrow } { \__ntwol_relation: \int_set:Nn \l__ntwol_argument_int {1} }
         { frac } { \int_set:Nn \l__ntwol_argument_int { 2 } }
         { dfrac } { \int_set:Nn \l__ntwol_argument_int { 2 } }
         { tfrac } { \int_set:Nn \l__ntwol_argument_int { 2 } }
         { binom } { \int_set:Nn \l__ntwol_argument_int { 2 } }
         { dbinom } { \int_set:Nn \l__ntwol_argument_int { 2 } }
+        { tbinom } { \int_set:Nn \l__ntwol_argument_int { 2 } }
+        { stackrel } { \int_set:Nn \l__ntwol_argument_int { 2 } }
+        % 不在否定命令与其关系符之间插入断行。
+        { not } { \int_set:Nn \l__ntwol_argument_int { 1 } }
         { underset } { \int_set:Nn \l__ntwol_argument_int { 2 } }
         { overset } { \int_set:Nn \l__ntwol_argument_int { 2 } }
         { begin } { \bool_set_false:N \l__ntwol_safe_bool }
@@ -149,7 +192,11 @@
         \clist_if_in:eeT
           {\tl_to_str:n {sqrt,mathbb,mathrm,mathbf,mathit,mathcal,mathsf,mathtt,operatorname,
            text,textrm,boldsymbol,bar,overline,underline,hat,widehat,tilde,
-           widetilde,vec,dot,ddot,pmod,hspace,underbrace,overbrace,substack,boxed}}
+           widetilde,vec,dot,ddot,pmod,hspace,underbrace,overbrace,substack,boxed,
+           mathscr,mathfrak,mathnormal,mathop,mathrel,mathbin,mathord,mathopen,
+           mathclose,mathpunct,mathinner,textnormal,textbf,textit,textsf,texttt,
+           acute,grave,breve,check,mathring,dddot,ddddot,overrightarrow,overleftarrow,
+           overleftrightarrow,underleftarrow,underrightarrow}}
           {\cs_to_str:N #1}
           {\int_set:Nn \l__ntwol_argument_int {1}}
       }
@@ -157,6 +204,15 @@
   }
 \cs_new_protected:Npn \__ntwol_character:N #1
   {
+    % 仅在最后一轮尝试外层二元加减号；一元负号与命令参数不作断点。
+    \bool_if:nT { \l__ntwol_sums_bool && \l__ntwol_operand_bool }
+      {
+        \int_compare:nNnT { \l__ntwol_delimiter_int } = { 0 }
+          {
+            \token_if_eq_charcode:NNT #1 + { \__ntwol_add_break: }
+            \token_if_eq_charcode:NNT #1 - { \__ntwol_add_break: }
+          }
+      }
     \token_if_eq_charcode:NNT #1 ( { \__ntwol_open_delimiter: }
     \token_if_eq_charcode:NNT #1 [ { \__ntwol_open_delimiter: }
     \token_if_eq_charcode:NNT #1 ) { \__ntwol_close_delimiter: }
@@ -177,6 +233,55 @@
       { \bool_set_true:N \l__ntwol_evaluation_bar_bool }
     \token_if_eq_charcode:NNT #1 ^ { \int_set:Nn \l__ntwol_argument_int { 1 } }
     \token_if_eq_charcode:NNT #1 _ { \int_set:Nn \l__ntwol_argument_int { 1 } }
+  }
+\cs_new_protected:Npn \__ntwol_operand:N #1
+  {
+    \str_if_eq:eeTF {\str_head:e {\token_to_str:N #1}} {\c_backslash_str}
+      {
+        \str_case_e:nnF {\cs_to_str:N #1} {{,}{} {;}{} {!}{} {:}{}}
+          {
+        \clist_if_in:eeTF
+          {\tl_to_str:n {par,quad,qquad,hspace,thinspace,medspace,thickspace,negthinspace,enspace}}
+          {\cs_to_str:N #1}
+          { }
+          {
+            \bool_set_true:N \l__ntwol_operand_bool
+            \clist_if_in:eeT
+              {\tl_to_str:n {not,frac,dfrac,tfrac,binom,dbinom,tbinom,stackrel,overset,underset,
+               left,bigl,Bigl,biggl,Biggl,cdot,times,div,pm,mp,otimes,oplus,
+               cup,cap,land,lor,to,mapsto,le,leq,lt,ge,geq,gt,ne,neq,
+               Rightarrow,Longrightarrow,Leftrightarrow,Longleftrightarrow,iff,implies,
+               in,notin,ni,subset,subseteq,supset,supseteq,approx,sim,simeq,equiv,
+               propto,ll,gg,prec,preceq,succ,succeq,parallel,nparallel,nmid,models,
+               vdash,dashv,bowtie,subsetneq,supsetneq,nleq,ngeq,nless,ngtr,asymp,cong,
+               leqslant,geqslant,lesssim,gtrsim,lessapprox,gtrapprox,doteq,doteqdot,
+               Doteq,triangleq,eqsim,approxeq,lessgtr,gtrless,nsubseteq,nsupseteq,
+               sqsubset,sqsupset,sqsubseteq,sqsupseteq}}
+              {\cs_to_str:N #1}
+              {\bool_set_false:N \l__ntwol_operand_bool}
+          }
+          }
+      }
+      {
+        \bool_set_true:N \l__ntwol_operand_bool
+        \str_case_e:nn {\token_to_str:N #1}
+          {
+            {+}{\bool_set_false:N \l__ntwol_operand_bool}
+            {-}{\bool_set_false:N \l__ntwol_operand_bool}
+            {=}{\bool_set_false:N \l__ntwol_operand_bool}
+            {<}{\bool_set_false:N \l__ntwol_operand_bool}
+            {>}{\bool_set_false:N \l__ntwol_operand_bool}
+            {*} {\bool_set_false:N \l__ntwol_operand_bool}
+            {/}{\bool_set_false:N \l__ntwol_operand_bool}
+            {(}{\bool_set_false:N \l__ntwol_operand_bool}
+            {[}{\bool_set_false:N \l__ntwol_operand_bool}
+            {,}{\bool_set_false:N \l__ntwol_operand_bool}
+            {;}{\bool_set_false:N \l__ntwol_operand_bool}
+            {:}{\bool_set_false:N \l__ntwol_operand_bool}
+            {^}{\bool_set_false:N \l__ntwol_operand_bool}
+            {_}{\bool_set_false:N \l__ntwol_operand_bool}
+          }
+      }
   }
 \cs_new_protected:Npn \__ntwol_opaque_token:N #1
   {
@@ -201,9 +306,49 @@
           }
           {
             \seq_if_empty:NTF \l__ntwol_environment_seq
-              { \__ntwol_outer_token:N #1 } { \__ntwol_opaque_token:N #1 }
+              { \__ntwol_outer_dispatch:N #1 } { \__ntwol_opaque_token:N #1 }
           }
       }
+  }
+% 两个显式分组参数的 stackrel 可在已知关系符前断行，说明文字仍整块保留。
+% 第二参数未分组或中间存在额外空白时沿用普通参数扫描，保真检查不放宽。
+\cs_new_protected:Npn \__ntwol_outer_dispatch:N #1
+  {
+    \bool_if:nTF
+      {\str_if_eq_p:ee {\token_to_str:N #1} {\token_to_str:N \stackrel}
+       && \int_compare_p:nNn {\l__ntwol_argument_int} = {0}
+       && \int_compare_p:nNn {\l__ntwol_delimiter_int} = {0}}
+      {\peek_meaning:NTF \c_group_begin_token
+        {\__ntwol_annotation_first:n} {\__ntwol_outer_token:N #1}}
+      {\__ntwol_outer_token:N #1}
+  }
+\cs_new_protected:Npn \__ntwol_annotation_first:n #1
+  {
+    \tl_set:Nn \l__ntwol_annotation_tl {#1}
+    \peek_meaning:NTF \c_group_begin_token
+      {\__ntwol_annotation_second:n}
+      {
+        \tl_put_right:Nn \l__ntwol_wrapped_tl {\stackrel{#1}}
+        \int_set:Nn \l__ntwol_argument_int {1}
+        \__ntwol_scan:
+      }
+  }
+\cs_new_protected:Npn \__ntwol_annotation_second:n #1
+  {
+    \tl_set:Nx \l__ntwol_relation_text_tl {\tl_to_str:n {#1}}
+    \tl_trim_spaces:N \l__ntwol_relation_text_tl
+    \clist_if_in:eeTF
+      {\tl_to_str:n {=,<,>,\sim,\simeq,\equiv,\approx,\cong,\le,\leq,\ge,\geq,\ne,\neq,
+                     \subseteq,\supseteq,\rightarrow,\leftarrow}}
+      {\tl_use:N \l__ntwol_relation_text_tl}
+      {\__ntwol_relation: \bool_set_false:N \l__ntwol_operand_bool}
+      {\bool_set_true:N \l__ntwol_operand_bool
+       \bool_if:NT \l__ntwol_sums_bool {\bool_set_false:N \l__ntwol_safe_bool}}
+    \tl_put_right:Nn \l__ntwol_wrapped_tl {\stackrel}
+    \tl_put_right:Nx \l__ntwol_wrapped_tl {{\exp_not:V \l__ntwol_annotation_tl}}
+    \tl_put_right:Nn \l__ntwol_wrapped_tl {{#1}}
+    \bool_set_true:N \l__ntwol_content_bool
+    \__ntwol_scan:
   }
 \cs_new_protected:Npn \__ntwol_outer_token:N #1
   {
@@ -221,7 +366,11 @@
       { \bool_set_false:N \l__ntwol_skip_delimiter_bool }
       {
         \int_compare:nNnTF { \l__ntwol_argument_int } > { 0 }
-          { \int_decr:N \l__ntwol_argument_int }
+          {
+            % 可选参数（如 sqrt[n]）需完整语法解释，不把其括号误作单个参数。
+            \token_if_eq_charcode:NNT #1 [ {\bool_set_false:N \l__ntwol_safe_bool}
+            \int_decr:N \l__ntwol_argument_int
+          }
           {
             % unicode-math 的数学字符命令在 token_if_cs 下会被视作隐式字符；
             % 用不展开的 token 拼写识别命令，才能识别 \leq 和 \Longleftrightarrow。
@@ -230,6 +379,7 @@
           }
       }
     \tl_put_right:Nn \l__ntwol_wrapped_tl { #1 }
+    \__ntwol_operand:N #1
     \bool_set_true:N \l__ntwol_content_bool
     \__ntwol_scan:
   }
@@ -247,6 +397,7 @@
     \bool_set_false:N \l__ntwol_relation_bool
     \bool_set_false:N \l__ntwol_content_bool
     \bool_set_false:N \l__ntwol_evaluation_bar_bool
+    \bool_set_false:N \l__ntwol_operand_bool
     \__ntwol_scan: #1 \q_stop
     \seq_if_empty:NF \l__ntwol_environment_seq { \bool_set_false:N \l__ntwol_safe_bool }
     \tl_if_empty:NF \l__ntwol_environment_action_tl { \bool_set_false:N \l__ntwol_safe_bool }
@@ -265,23 +416,137 @@
       { \sbox{\NtwoLMathBox}{$\displaystyle\begin{aligned}&\tl_use:N \l__ntwol_wrapped_tl\end{aligned}$} }
       { \NtwoLWidthError }
   }
+% 加减号只是允许的断点；按实际行宽尽量合并相邻片段，不把每项都独占一行。
+\cs_new_protected:Npn \__ntwol_pack:
+  {
+    \seq_set_split:NnV \l__ntwol_chunks_seq {\NtwoLWrapBreak} \l__ntwol_wrapped_tl
+    \tl_clear:N \l__ntwol_row_tl
+    \tl_clear:N \l__ntwol_packed_tl
+    \int_zero:N \l__ntwol_breaks_int
+    \seq_map_inline:Nn \l__ntwol_chunks_seq
+      {
+        \tl_set_eq:NN \l__ntwol_trial_tl \l__ntwol_row_tl
+        \tl_put_right:Nn \l__ntwol_trial_tl {##1}
+        \sbox{\NtwoLMathBox}{$\displaystyle{}\tl_use:N\l__ntwol_trial_tl$}
+        \ifdim\wd\NtwoLMathBox>\linewidth
+          \tl_if_empty:NF \l__ntwol_row_tl
+            {
+              \tl_put_right:NV \l__ntwol_packed_tl \l__ntwol_row_tl
+              \tl_put_right:Nn \l__ntwol_packed_tl {\NtwoLWrapBreak}
+              \int_incr:N \l__ntwol_breaks_int
+              \tl_clear:N \l__ntwol_row_tl
+            }
+        \fi
+        \tl_put_right:Nn \l__ntwol_row_tl {##1}
+      }
+    \tl_put_right:NV \l__ntwol_packed_tl \l__ntwol_row_tl
+    \tl_set_eq:NN \l__ntwol_wrapped_tl \l__ntwol_packed_tl
+    \tl_set_eq:NN \l__ntwol_verified_tl \l__ntwol_wrapped_tl
+    \tl_remove_all:Nn \l__ntwol_verified_tl {\NtwoLWrapBreak}
+    \tl_if_eq:NNF \l__ntwol_verified_tl \l__ntwol_original_tl
+      {\bool_set_false:N \l__ntwol_safe_bool}
+  }
+% 选择第一个无需缩放的方案；都略宽时保留最窄的安全方案，再允许有限缩放。
+\cs_new_protected:Npn \__ntwol_consider:n #1
+  {
+    \__ntwol_plan:n {#1}
+    \bool_if:nT {\l__ntwol_safe_bool && \l__ntwol_sums_bool} {\__ntwol_pack:}
+    \bool_if:NT \l__ntwol_safe_bool
+      {
+        \int_compare:nNnT {\l__ntwol_breaks_int} > {0}
+          {
+            \__ntwol_measure_plan:
+            \ifdim\wd\NtwoLMathBox>\linewidth\else
+              \bool_set_true:N \l__ntwol_chosen_bool
+            \fi
+            \bool_if:nT
+              {\l__ntwol_chosen_bool || \dim_compare_p:nNn {\wd\NtwoLMathBox} < {\l__ntwol_best_dim}}
+              {
+                \tl_set_eq:NN \l__ntwol_best_tl \l__ntwol_wrapped_tl
+                \dim_set:Nn \l__ntwol_best_dim {\wd\NtwoLMathBox}
+                \int_set_eq:NN \l__ntwol_best_breaks_int \l__ntwol_breaks_int
+              }
+          }
+      }
+  }
 \NewDocumentCommand \NtwoLWrapDisplay { m }
   {
+    \tl_set:Nn \l__ntwol_best_tl {#1}
+    \dim_set:Nn \l__ntwol_best_dim {\wd\NtwoLMathBox}
+    \int_zero:N \l__ntwol_best_breaks_int
+    \bool_set_false:N \l__ntwol_chosen_bool
+    \bool_set_false:N \l__ntwol_sums_bool
     \bool_set_false:N \l__ntwol_force_first_bool
-    \__ntwol_plan:n {#1}
-    \__ntwol_measure_plan:
-    \ifdim\wd\NtwoLMathBox>1.12\linewidth
-      \bool_set_true:N \l__ntwol_force_first_bool
-      \__ntwol_plan:n {#1}
-      \__ntwol_measure_plan:
-    \fi
-    \ifdim\wd\NtwoLMathBox>1.12\linewidth
+    \__ntwol_consider:n {#1}
+    \bool_if:NF \l__ntwol_chosen_bool
+      {\bool_set_true:N \l__ntwol_force_first_bool \__ntwol_consider:n {#1}}
+    \bool_if:NF \l__ntwol_chosen_bool
+      {\bool_set_true:N \l__ntwol_sums_bool \__ntwol_consider:n {#1}}
+    \ifdim\l__ntwol_best_dim>1.12\linewidth
+      \wd\NtwoLMathBox=\l__ntwol_best_dim
       \NtwoLWidthError
     \else
-      \typeout{N2LWRAPPED:\NtwoLCurrentFormula}
-      \typeout{N2LWRAPROWS:\int_eval:n {\l__ntwol_breaks_int+1}}
-      \typeout{N2LWRAPDIMS:\the\wd\NtwoLMathBox :\the\linewidth}
-      \[\NtwoLDisplay{\begin{aligned}&\tl_use:N \l__ntwol_wrapped_tl\end{aligned}}\]
+      \int_compare:nNnTF {\l__ntwol_best_breaks_int} = {0}
+        {\[\NtwoLDisplay{#1}\]}
+        {
+          \typeout{N2LWRAPPED:\NtwoLCurrentFormula}
+          \typeout{N2LWRAPROWS:\int_eval:n {\l__ntwol_best_breaks_int+1}}
+          \typeout{N2LWRAPDIMS:\dim_use:N\l__ntwol_best_dim :\the\linewidth}
+          \[\NtwoLDisplay{\begin{aligned}&\tl_use:N \l__ntwol_best_tl\end{aligned}}\]
+        }
     \fi
+  }
+% 原公式参数保留在 main.tex；仅在排版副本中将空行产生的 par token 规范为空白。
+% 递归扫描分组且不展开数学命令，避免只处理顶层而漏掉分子等参数中的空行。
+\cs_new_protected:Npn \__ntwol_whitespace_scan:
+  {
+    \peek_meaning_remove:NTF \q_stop { }
+      {
+        \peek_meaning_remove:NTF \c_space_token
+          {\tl_put_right:Nn \l__ntwol_clean_math_tl {~} \__ntwol_whitespace_scan:}
+          {\peek_meaning:NTF \c_group_begin_token
+            {\__ntwol_whitespace_group:n} {\__ntwol_whitespace_token:N}}
+      }
+  }
+\cs_new_protected:Npn \__ntwol_whitespace_group:n #1
+  {
+    \group_begin:
+    \tl_clear:N \l__ntwol_clean_math_tl
+    \__ntwol_whitespace_scan: #1 \q_stop
+    \use:x
+      {
+        \exp_not:N \group_end:
+        \exp_not:N \tl_put_right:Nn \exp_not:N \l__ntwol_clean_math_tl
+          {{\exp_not:V \l__ntwol_clean_math_tl}}
+      }
+    \__ntwol_whitespace_scan:
+  }
+\cs_new_protected:Npn \__ntwol_whitespace_token:N #1
+  {
+    \token_if_eq_meaning:NNTF #1 \par
+      {\tl_put_right:Nn \l__ntwol_clean_math_tl {~}}
+      {\tl_put_right:Nn \l__ntwol_clean_math_tl {#1}}
+    \__ntwol_whitespace_scan:
+  }
+\cs_new_protected:Npn \__ntwol_clean:n #1
+  {\tl_clear:N \l__ntwol_clean_math_tl \__ntwol_whitespace_scan: #1 \q_stop}
+\NewDocumentCommand \NtwoLWithMathWhitespace {m +m}
+  {
+    \__ntwol_clean:n {#2}
+    \exp_args:NnV \NtwoLNormalizedMathDisplay {#1} \l__ntwol_clean_math_tl
+  }
+\NewDocumentCommand \NtwoLMathWhitespace {+m}
+  {
+    \__ntwol_clean:n {#1}
+    \tl_use:N \l__ntwol_clean_math_tl
+  }
+% MathJax 笔记常在 stackrel 标签里直接写换行；仅对这种标签启用原生 substack。
+% 原 stackrel 调用与参数仍保留在源文件，单行标签沿用原实现。
+\cs_new_eq:NN \__ntwol_original_stackrel:nn \stackrel
+\RenewDocumentCommand \stackrel {+m +m}
+  {
+    \tl_if_in:nnTF {#1} {\\}
+      {\__ntwol_original_stackrel:nn {\substack{#1}} {#2}}
+      {\__ntwol_original_stackrel:nn {#1} {#2}}
   }
 \ExplSyntaxOff

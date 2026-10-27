@@ -10,6 +10,11 @@ from .math_input import parse_ast
 ANCHOR = re.compile(r'^<a\s+id="([A-Za-z][A-Za-z0-9_-]*)"\s*></a>\s*$')
 HEADING = re.compile(r"(?m)^(#{1,6})[ \t]+(.+)$")
 INDENTED_HEADING = re.compile(r"(?m)^ {1,3}(#{1,6})[ \t]+(.+)$")
+LIST_HEADING = re.compile(
+    r"(?m)^[ \t]*(?:(?:[-+*]|[0-9]+[.)]|\([0-9]+\)|"
+    r"[A-Za-z][.)]|\([A-Za-z]\)|[ivxlcdmIVXLCDM]+[.)]|\([ivxlcdmIVXLCDM]+\))[ \t]+)+"
+    r"(#{1,6})[ \t]+(.+)$"
+)
 
 
 def markdown_input(source, fallback_title):
@@ -22,7 +27,9 @@ def markdown_input(source, fallback_title):
         first = re.search(r"\S", text)
         heading = HEADING.match(text, first.start()) if first else None
         title = heading[2] if heading and heading[1] == "#" else fallback_title
-        if any(x in title for x in ("\\", "{", "}", "$", "<", ">")):
+        if not (heading and heading[1] == "#") and any(
+            x in title for x in ("\\", "{", "}", "$", "<", ">")
+        ):
             source.error("INPUT_METADATA", "文档标题仅支持普通文本。", title)
         meta = {"title": title, "lang": "zh-CN"}
         body, offset = text, 0
@@ -32,6 +39,9 @@ def markdown_input(source, fallback_title):
             {
                 "kind": "metadata",
                 "title_from": "h1" if heading and heading[1] == "#" else "filename",
+                **({"title_range": [heading.start(), heading.end()],
+                    "title_text_offset": heading.start(2)}
+                   if heading and heading[1] == "#" else {}),
             }
         )
     return meta, body, offset, adaptations
@@ -88,6 +98,10 @@ def adapt_markdown(doc, quarto):
         source_headers.extend(
             x for x in INDENTED_HEADING.finditer(doc.body)
             if doc.visible[body_offset + x.start(1) : body_offset + x.start(1) + 1] == "#"
+        )
+        source_headers.extend(
+            x for x in LIST_HEADING.finditer(doc.body)
+            if doc.visible[body_offset + x.start(1):body_offset + x.start(1) + 1] == "#"
         )
         source_headers.sort(key=lambda x: x.start())
     if len(source_headers) != len(headers):
@@ -175,6 +189,7 @@ def adapt_markdown(doc, quarto):
         {
             "kind": "structure",
             "heading_shift": shift,
+            "heading_levels": 6,
             "number_sections": False,
             "generated_labels": list(doc.generated_labels),
             "internal_links": doc.internal_links,
@@ -182,13 +197,18 @@ def adapt_markdown(doc, quarto):
             "author": "only_if_explicit",
             "table_columns": "equal",
             "inline_breaks": "ascii_separators_outside_headings",
+            "list_numbering": doc.list_numbering,
+            "source_list_markers": [
+                [item["marker"] for item in records] for records in doc.list_numbers.values()
+            ],
             "display_fit": {
                 "max_width_ratio": 1.12,
                 "text_unchanged": True,
-                "overflow": "portrait_outer_relation_wrap",
+                "overflow": "portrait_relations_then_outer_sums_before_shrinking",
                 "ambiguous_or_still_wide": "error",
                 "tagged_equations": "native",
                 "numbered_equations": "native",
+                "multiline_stackrel_labels": "native_substack",
             },
         }
     )

@@ -6,11 +6,43 @@
 % MathJax 常用别名在此使用标准关系符实现，源包仍保留原始宏写法。
 \providecommand{\lt}{<}
 \providecommand{\gt}{>}
+\providecommand{\doteqdot}{\Doteq}
+\providecommand{\square}{\mdlgwhtsquare}
+\providecommand{\blacksquare}{\mdlgblksquare}
 % 星号在代码字体中缺字，交由已有 CJK 正文/等宽字体显示原字符；不改代码字节。
 \xeCJKDeclareCharClass{CJK}{"2605}
 % Latin Modern 正文字体不含这些字符；使用现有字体显示同一 Unicode 字形。
 \newfontfamily\NtwoLCircleFont[BoldFont=FandolSong-Bold.otf]{FandolSong-Regular.otf}
 \newfontfamily\NtwoLProofFont{latinmodern-math.otf}
+% 仅正文中的希腊字母换为 FreeSerif，保留粗体/斜体；西文仍为 Latin Modern。
+\newfontfamily\NtwoLGreekFont[
+  BoldFont=FreeSerifBold.otf,ItalicFont=FreeSerifItalic.otf,
+  BoldItalicFont=FreeSerifBoldItalic.otf]{FreeSerif.otf}
+\newfontfamily\NtwoLUnicodeFont[
+  BoldFont=FreeSerif.otf,ItalicFont=FreeSerif.otf,
+  BoldItalicFont=FreeSerif.otf]{FreeSerif.otf}
+\DeclareRobustCommand{\NtwoLGreekText}[1]{{\NtwoLGreekFont #1}}
+% 灯泡使用 Windows 已有的黑白符号字体，不安装、不随源包分发字体。
+\IfFontExistsTF{Segoe UI Symbol}{%
+  \newfontfamily\NtwoLLightbulbFont[
+    BoldFont={Segoe UI Symbol},ItalicFont={Segoe UI Symbol},
+    BoldItalicFont={Segoe UI Symbol}]{Segoe UI Symbol}%
+}{\newcommand{\NtwoLLightbulbFont}{%
+  \PackageError{note2lecture}{Missing Segoe UI Symbol font}{Required for lightbulb glyph.}}}
+\ExplSyntaxOn
+\DeclareRobustCommand{\NtwoLUnicodeSymbol}[1]{
+  \leavevmode\hbox{
+  \group_begin:
+  \tl_set:Nn \l_tmpa_tl {#1}
+  % 已知单个符号后的变体选择符仅决定彩色/文字外观；本模板采用黑白字形。
+  \tl_remove_all:Nn \l_tmpa_tl {︎}
+  \tl_remove_all:Nn \l_tmpa_tl {️}
+  \tl_if_in:NnTF \l_tmpa_tl {💡}{\NtwoLLightbulbFont}{\NtwoLUnicodeFont}
+  \tl_use:N \l_tmpa_tl
+  \group_end:
+  }
+}
+\ExplSyntaxOff
 \newcommand{\NtwoLTextSymbol}[1]{%
   {\ifnum`#1="220E \NtwoLProofFont\else\NtwoLCircleFont\fi #1}%
 }
@@ -20,6 +52,21 @@
 % 小节题头至少与几行正文同页，避免长笔记中题头孤立在页底。
 \pretocmd{\subsection}{\Needspace{9\baselineskip}}{}{}
 \pretocmd{\subsubsection}{\Needspace{9\baselineskip}}{}{}
+% 四至六级保持独立成行；字号不低于正文，使用字体与间距区分层级。
+\makeatletter
+\newcommand{\NtwoLDeepHeading}[4]{%
+  \par\Needspace{5\baselineskip}\addvspace{0.65em}%
+  \phantomsection\pdfbookmark[#1]{#4}{n2l-deep-#2}%
+  \def\@currentlabelname{#4}%
+  \begingroup\parindent=0pt
+  \ifcase\numexpr#1-3\relax\or
+    \sffamily\bfseries\fontsize{11}{17}\selectfont
+  \or\rmfamily\bfseries\fontsize{11}{17}\selectfont
+  \else\rmfamily\fontsize{11}{17}\selectfont\fi
+  #3\par\endgroup\nopagebreak[4]\vspace{0.2em}%
+}
+\makeatother
+\AtBeginDocument{\ifdefined\hypersetup\hypersetup{bookmarksdepth=6}\fi}
 % 在条目开始前预留题头和正文空间；不能放入条目内部，以免推迟列表标记。
 \pretocmd{\item}{\Needspace{4\baselineskip}}{}{}
 \newsavebox{\NtwoLMathBox}
@@ -45,10 +92,13 @@
 % 普通独立公式保持竖版；超宽时只在明确的外层关系符处分行。
 % 原公式作为完整参数保留，分行只作用于 token 副本并验证 token 不变。
 \newcommand{\NtwoLMathDisplay}[2]{%
+  \NtwoLWithMathWhitespace{#1}{#2}%
+}
+\newcommand{\NtwoLNormalizedMathDisplay}[2]{%
   \begingroup
   \def\NtwoLCurrentFormula{#1}%
   \sbox{\NtwoLMathBox}{$\displaystyle #2$}%
-  \ifdim\wd\NtwoLMathBox>1.12\linewidth
+  \ifdim\wd\NtwoLMathBox>\linewidth
     \NtwoLWrapDisplay{#2}%
   \else
     \[\NtwoLDisplay{#2}\]%
