@@ -1,6 +1,20 @@
 # 原创笔记转换效果
 
+## 当前候选版：从窗口完成第一次转换
+
+v0.1.0 候选准备新增一篇普通 Markdown 笔记，展示均值与平方距离公式、图片、表格，以及 JSON / PowerShell 代码。三条观测值为 2、4、9，与复用的原创均值流程图一致。原稿代码不执行。
+
+[Markdown 原稿](../examples/05-first-lecture.md) · [完整 PDF](demo/v0.1.0/05-first-lecture.pdf) · [可编辑 LaTeX 源包](demo/v0.1.0/05-first-lecture-source.zip)
+
+![当前候选版首次体验讲义](demo/v0.1.0/05-first-lecture-preview.png)
+
+运行方式见 [首次使用](quickstart-windows.md)，GUI 实际截图见 [桌面界面](desktop-gui.md)，本轮条件与检查见 [候选验收](release-candidate.md)。当前产物与 [验证清单](demo/v0.1.0/validation.json)单独保存。
+
+## 四篇历史固定演示
+
 以下四篇输入与图片都由 Note2Lecture 为演示原创编写，来源和展示授权见 [样例说明](../examples/README.md)。基础转换关闭模型，笔记代码只排版，不执行。点击原稿查看 Markdown 写法，点击讲义查看完整 PDF；源包可解压编辑并用 XeLaTeX 重编译。
+
+以下 PDF、源包和预览图保留 2026-10-26 的生成结果与原摘要；它们用于展示各类结构，不能当作当前 GUI 或最新模板重新验收的证据。
 
 | 示例 | 主要展示 | Markdown 原稿 | 完整讲义 | 可编辑源包 |
 | --- | --- | --- | --- | --- |

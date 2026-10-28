@@ -1,0 +1,22 @@
+{
+  "date": "2026-10-28",
+  "application_version": "0.1.0",
+  "runtime_base_commit": "b0d4cee5a433483de7badf0880b46f7a0e468795",
+  "renderer": "edgechromium",
+  "actual_native_window": true,
+  "actual_conversion": true,
+  "sample": "examples/05-first-lecture.md",
+  "profiles": [
+    "markdown",
+    "obsidian"
+  ],
+  "machine_paths_normalized_in_display_only": true,
+  "raw_reports_modified": false,
+  "private_inputs": false,
+  "reviewed": true,
+  "files_sha256": {
+    "convert-light.png": "2b113e563053e487ccae6f8c0355b14f0bcb551d54c98211e57c9ca5c2ae25a5",
+    "results-dark.png": "1381953808c73ac29a2423cec6d5a018a319c12eda8a42f097f577f55f62ac8b"
+  },
+  "webview2_runtime": "156.0.4314.50"
+}

@@ -2,7 +2,19 @@
 
 日期：2026-10-27。首版为本地桌面窗口，采用灰白细边框、绿色主按钮与讲义式标题，支持浅色和深色。复用现有输入检查、单篇导出和批处理，生成 PDF 与可编辑 LaTeX 源包。
 
+第一次使用从 [Windows 安装与首次转换](quickstart-windows.md)开始，公开体验选择 `examples/05-first-lecture.md` 和“普通 Markdown”。包含 GUI 的同机新环境复现见 [候选验收](release-candidate.md)。
+
+![浅色界面与公开输入](gui/convert-light.png)
+
+![深色界面的实际生成结果](gui/results-dark.png)
+
+两张图来自真实窗口与实际公开样例转换。仅在截图展示时把机器目录替换成相对路径，避免携带开发者绝对路径；没有修改转换报告。右侧为固定模板示意。截图来源与摘要见 [截图清单](gui/validation.json)。
+
 ## 启动
+
+完成首次环境配置后，双击根目录 **[Start Note2Lecture.cmd](<../Start Note2Lecture.cmd>)** 即可打开窗口；可以从其他工作目录启动，也支持项目路径含中文与空格。它使用项目 `.venv`，缺少环境时给出中文提示，不改用系统 Python，不自动安装。
+
+已有 Quarto 未加入 PATH 时，在 GUI“高级选项”选择其实际程序路径，保存后后续双击继续使用。启动日志在 `.cache/gui/launcher/`，stdout / stderr 每次单独保存；正常退出不会额外弹窗。该目录继续受 Git 忽略，日志留本机。
 
 在项目目录、已准备基础转换环境的前提下，由使用者安装可选界面依赖并启动：
 
@@ -13,7 +25,7 @@
 
 已有本项目 GUI 依赖时只需运行第二行。当前从源码目录启动，没有独立 EXE 或安装器。命令行入口和原来的两个运行依赖继续可用，不要求为了 CLI 安装界面库。
 
-本机已验证 Python 3.12.4、pywebview 6.2.1、pythonnet 3.2.1 与已有 WebView2 Runtime 155.0.4283.62；仍复用原来的 Quarto / XeLaTeX。Windows 需要 WebView2 和 .NET Framework，参见 [pywebview 官方安装说明](https://pywebview.flowrl.com/guide/installation.html)及 [Windows 渲染引擎说明](https://pywebview.flowrl.com/guide/web_engine.html)。本次用户授权助手在项目 `.venv` 安装可选库；程序运行时不会自动安装依赖。尚未验收其他操作系统或独立打包。
+GUI 首轮已验证 Python 3.12.4、pywebview 6.2.1、pythonnet 3.2.1 与当时的 WebView2 Runtime 155.0.4283.62；2026-10-28 候选复现时系统运行时为 156.0.4314.50，同样通过；仍复用原来的 Quarto / XeLaTeX。Windows 需要 WebView2 和 .NET Framework，参见 [pywebview 官方安装说明](https://pywebview.flowrl.com/guide/installation.html)及 [Windows 渲染引擎说明](https://pywebview.flowrl.com/guide/web_engine.html)。本次用户授权助手在项目 `.venv` 安装可选库；程序运行时不会自动安装依赖。尚未验收其他操作系统或独立打包。
 
 ## 使用
 

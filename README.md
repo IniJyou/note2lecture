@@ -6,9 +6,33 @@
 
 Windows 用户也可使用新的 [本地桌面界面](docs/desktop-gui.md)：安装可选的 `requirements-gui.txt` 后，运行 `.\.venv\Scripts\python.exe note2lecture_gui.py`，选择笔记并检查或转换。界面支持浅深色、中文诊断及结果打开，沿用现有 PDF / LaTeX 转换器。
 
+## 从窗口开始
+
+已配置好环境后，在本地项目目录双击 **[Start Note2Lecture.cmd](<Start Note2Lecture.cmd>)** 即可启动，无需每次输入命令。启动器使用项目自己的 `.venv`，失败时弹出提示并保留日志。
+
+先按 [Windows 指南](docs/quickstart-windows.md) 准备 Python、Quarto、XeLaTeX、宏包与字体，在源码目录打开 PowerShell：
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements-gui.txt
+.\.venv\Scripts\python.exe note2lecture.py doctor
+.\.venv\Scripts\python.exe note2lecture_gui.py
+```
+
+已有项目环境时无需重建。GUI 另需 Windows WebView2 Runtime；工具未加入 PATH 时，按指南设置已有 Quarto 的位置。点击“添加文件”，选择 [首次体验样例](examples/05-first-lecture.md)，保持“普通 Markdown”，先检查，再开始转换。
+
+![浅色桌面窗口：公开样例与转换设置](docs/gui/convert-light.png)
+
+截图来自真实窗口的公开样例演示，机器路径仅在截图展示时替换为相对路径；右侧是模板示意，不是笔记实时预览。
+
+| 当前候选版体验 | 材料 |
+| --- | --- |
+| 普通 Markdown、公式、图片、JSON 与 PowerShell | [原稿](examples/05-first-lecture.md) · [PDF](docs/demo/v0.1.0/05-first-lecture.pdf) · [可编辑源包](docs/demo/v0.1.0/05-first-lecture-source.zip) |
+| 验证范围与发布边界 | [候选验收](docs/release-candidate.md) · [v0.1.0 发布说明](docs/release-notes-v0.1.0.md) |
+
 ## 先看效果
 
-四篇原创样例展示正文与代码、数学环境、公式图表及基础 Obsidian 语法。完整 PDF 和可编辑源包见 [演示页面](docs/demo.md)，所有演示都不使用私人笔记。
+四篇历史固定样例展示正文与代码、数学环境、公式图表及基础 Obsidian 语法；新增首次体验样例单独记录当前候选版结果。完整 PDF 和可编辑源包见 [演示页面](docs/demo.md)，所有演示都不使用私人笔记。
 
 ![投影讲义预览：定义、公式与引用](docs/demo/02-projection-preview.png)
 
@@ -67,3 +91,5 @@ HTML、Word/EPUB、独立打包和模型建议留待后续分别验收。电子�
 | 项目安排和协作 | [当前工作](docs/current-work.md)、[规划](PROJECT_PLAN.md)、[AGENTS.md](AGENTS.md) |
 
 公开演示的来源与展示授权见 [原创样例说明](examples/README.md)。下载、安装和 Git 写操作按项目协作约定执行；私人输入和导出产物不自动上传或加入公开仓库。
+
+v0.1.0 已通过本轮候选验收，实际发布版本与对应源码见 [GitHub Releases](https://github.com/IniJyou/note2lecture/releases)。仓库尚未设置覆盖整个项目的代码许可证，样例授权不替其他文件设定许可；字体和第三方工具不随演示源包分发。

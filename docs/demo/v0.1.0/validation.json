@@ -1,0 +1,37 @@
+{
+  "date": "2026-10-28",
+  "application_version": "0.1.0",
+  "runtime_base_commit": "b0d4cee5a433483de7badf0880b46f7a0e468795",
+  "planning_version": "v0.2",
+  "sample": "examples/05-first-lecture.md",
+  "profile": "markdown",
+  "generated_via": "actual Windows GUI in new Python environment",
+  "system_tools_shared": true,
+  "private_inputs": false,
+  "model_enabled": false,
+  "code_execution": false,
+  "page_review": true,
+  "pages": 2,
+  "math_exact": 7,
+  "code_exact": 2,
+  "prose_tokens": 33,
+  "tables": 1,
+  "resources": 1,
+  "input_unchanged": true,
+  "source_zip_exact": true,
+  "relocated_compile": true,
+  "raw_status": "partial",
+  "user_style_approved": true,
+  "input_sha256": "b4921ee4cd09350319a7b296d4b00fdab7d6b7efa136bc28fcb932dd55be6332",
+  "files_sha256": {
+    "05-first-lecture-preview.png": "d7dea27f555c05c794629c02007fe72fc6c6dfb27a83d77a688fd2d019154f3e",
+    "05-first-lecture-source.zip": "458398301974f560091db859bf792fd32fd606c9c6bf5f51a8adb4fe4017a35c",
+    "05-first-lecture.pdf": "0547e5ee3fd9503d5245e563f86f0701deeecbc3c5b4fe0dc042f598c11d5ea5"
+  },
+  "user_acceptance": {
+    "date": "2026-10-28",
+    "scope": "Fixed candidate guide, GUI screenshots and public demo",
+    "reply": "确认",
+    "raw_reports_modified": false
+  }
+}

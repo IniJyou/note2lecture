@@ -1,6 +1,6 @@
 # Windows 第一次导出讲义
 
-这份指南从准备工具开始，完成一次原创样例转换，再说明怎样处理自己的笔记。基础转换在本地运行，不需要 GPU 或模型。当前提供 PDF 与可编辑 LaTeX 源包、单篇与指定文件批处理。
+这份指南从准备工具开始，完成一次 GUI 原创样例转换，再说明命令行和自己的笔记。基础转换在本地运行，不需要 GPU 或模型。当前提供 PDF 与可编辑 LaTeX 源包、单篇与指定文件批处理。
 
 已有基础转换环境时，可按 [桌面界面指南](desktop-gui.md)安装可选界面依赖，通过窗口完成同样的检查和导出。
 
@@ -15,6 +15,7 @@
 | [Python for Windows](https://www.python.org/downloads/windows/) | 运行转换程序 | Python 3.12.4 |
 | [Quarto](https://quarto.org/docs/get-started/) | 使用随附 Pandoc 解析并转换文档 | Quarto 1.10.19 / Pandoc 3.10 |
 | [TeX Live for Windows](https://tug.org/texlive/windows.html) | XeLaTeX 编译、中文与数学字体 | TeX Live 2024 |
+| [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)（GUI） | 显示桌面窗口 | 既有 Runtime 156.0.4314.50 |
 
 上表记录已经验证的组合，不宣称其他版本均通过。Python 项目要求 3.12 或以上；首次复现可优先使用 3.12。已有这些工具时可以复用它们，新建本项目自己的 Python 环境即可。
 
@@ -22,18 +23,20 @@ TeX 环境需要能够运行 `xelatex` 和 `kpsewhich`，并提供 Fandol、Lati
 
 Quarto 建议使用英文安装路径；已验证版本在中文安装目录下出现过模块加载错误。安装路径和是否加入 PATH 按官方安装流程选择，不需要创建本项目开发者使用过的目录联接。
 
+桌面窗口使用 pywebview 的 Windows EdgeChromium 引擎，需要 WebView2 Runtime 和 .NET Framework；已有可用运行时可直接复用。Python 界面依赖在下一步安装，系统运行时按 [pywebview 官方说明](https://pywebview.flowrl.com/guide/installation.html)准备。本项目不会自动下载或安装这些工具；普通使用无需管理员终端。
+
 普通 Markdown / Obsidian 模板还使用 TeX Live 的 FreeSerif 四种字形；含 💡 时需要 Windows 的 Segoe UI Symbol。额外字体由实际导出检查，缺项时给出文件名，不自动安装或随源包分发。特殊字符采用黑白显示，支持范围见 [字形说明](text-glyphs.md)。
 
 ## 2. 建立独立 Python 环境
 
 ```powershell
 py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install -r requirements-gui.txt
 ```
 
 如果使用的是已经确认版本的 Python 解释器，也可以用它执行 `-m venv .venv`。输出环境必须是本项目的新目录；不要覆盖其他项目的环境。
 
-运行依赖只有 PyYAML 和 Pillow，版本写在 `requirements.txt`。开发测试才需要 `requirements-dev.txt`。使用完整的 Python 路径可直接运行，下面不要求激活环境或修改 PowerShell 执行策略。已有本项目 `.venv` 时，先检查其版本及依赖，不必重建。
+`requirements-gui.txt` 包含基础导出的 PyYAML、Pillow，加上 pywebview 及其必要依赖。只用命令行时改为安装 `requirements.txt`，无需界面库。开发测试才需要 `requirements-dev.txt`。使用完整的 Python 路径可直接运行，下面不要求激活环境或修改 PowerShell 执行策略。已有本项目 `.venv` 时，先检查其版本及依赖，不必重建。
 
 ## 3. 让程序找到现有工具
 
@@ -55,6 +58,34 @@ Get-Command xelatex, kpsewhich
 `status: checked` 表示工具、宏包和字体检查通过。程序不会自动下载或安装缺失项。退出码可用 `$LASTEXITCODE` 查看，0 表示命令没有报告错误。
 
 ## 4. 导出第一篇公开样例
+
+### 使用窗口
+
+配置好环境后，可以在资源管理器里双击项目根目录的 **[Start Note2Lecture.cmd](<../Start Note2Lecture.cmd>)**。它会自动使用本项目 `.venv`，不要求激活环境、输入命令或以管理员运行。也可以自行创建该文件的桌面快捷方式。
+
+Quarto 未加入系统 PATH 时，首次在 GUI 的“高级选项 → Quarto 路径”选择实际 `quarto.exe`，设置会保存，后续双击继续使用。从资源管理器双击时，不会读取另一个终端临时设置的环境变量。TeX 命令仍需能从系统 PATH 找到。
+
+启动失败时会显示中文提示；异常退出日志位于 `.cache/gui/launcher/`，每次使用新文件，不覆盖旧日志。启动器不会自动创建 Python 环境或下载、安装依赖。请先完整解压源码，再双击本地入口。
+
+也可在同一个终端直接启动 GUI，让它继承刚才配置的工具路径：
+
+```powershell
+.\.venv\Scripts\python.exe note2lecture_gui.py
+```
+
+1. 点击“添加文件”，选择项目 `examples/05-first-lecture.md`。
+2. 笔记格式保持“普通 Markdown”。点击“选择目录”指定结果父目录，或使用项目下的默认 `output`。
+3. 点击“检查笔记”，确认没有错误；再点击“开始转换”。窗口右侧是模板示意，实际 PDF 完成后打开查看。
+4. 出现“已生成，待阅读检查”后，点击“打开 PDF”。这份公开笔记有公式、图表、JSON 与 PowerShell 代码；代码只排版，不执行。
+5. 点击“LaTeX 源目录”可看到 `main.tex`、图片、代码及模板。完整源包还会保存为 `lecture-source.zip`。
+
+![首次转换：公开 Markdown 样例](gui/convert-light.png)
+
+每次新建 `lecture-日期时间-短标识` 目录，重试会保留旧结果。多篇输入分别在 `001`、`002` 等子目录，根目录有批次汇总。截图中机器路径以相对路径展示，任务和诊断来自真实运行；细节见 [界面指南](desktop-gui.md)。
+
+### 使用命令行
+
+默认 strict 样例的命令如下。它和上面的普通 Markdown 体验是两条可选入口：
 
 ```powershell
 .\.venv\Scripts\python.exe note2lecture.py check examples/01-mean.md
@@ -123,5 +154,10 @@ if ($LASTEXITCODE -eq 0) {
 | `STRUCTURE_INVALID` / `UNSUPPORTED_SYNTAX` | 根据文件、行列与说明核对输入；确认选对 profile，并查支持规则 |
 | `COMPILE_FAILED` / `LAYOUT_OVERFLOW` | 按提示查看源位置与 `_build/` 日志；保留失败产物，修正后换新目录 |
 | 转换完成却是 `partial` | 人工检查项尚未自动批准；查看 PDF，不要将其当作编译失败 |
+| `LOCAL_LINK_NOT_PACKAGED` | 原稿有本地文档链接，讲义保留文字和路径；其他文档不会自动合并或打包。这是警告，不等于缺图或目标不存在 |
+| GUI 提示缺少依赖或窗口启动失败 | 确认用本项目 Python 安装了 `requirements-gui.txt`；检查已有 WebView2、.NET 和本地报错。仅安装 Edge 浏览器不代表 WebView2 运行时一定可用 |
+| 双击提示没有项目 Python 环境 | 先完成第 2 步配置 `.venv`；入口只复用已有环境，不使用其他项目或系统 Python 代替 |
+| 双击能开窗口，但转换找不到 Quarto | 在 GUI 高级选项中选择已有 `quarto.exe` 并保存；临时终端变量不会自动成为资源管理器的环境 |
+| TeXstudio 打开 `main.tex` 后编译报错 | 先解压完整源包，选择 XeLaTeX 编译，并保留 assets、code、template 等配套目录 |
 
-本轮复现条件和结果见 [N5 复现记录](n5-validation.md)。开发者测试及页面检查工具另见 [开发验证](development.md)。
+当前候选版的复现条件和结果见 [候选验收](release-candidate.md)；首次四篇演示的历史记录见 [N5 首轮复现](n5-validation.md)。开发者测试及页面检查工具另见 [开发验证](development.md)。
